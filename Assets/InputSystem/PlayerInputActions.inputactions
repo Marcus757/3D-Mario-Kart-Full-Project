@@ -1,0 +1,54 @@
+{
+    "name": "PlayerInputActions",
+    "maps": [
+        {
+            "name": "Driving",
+            "id": "d2fbd49a-64fc-47dc-914b-25b1446171e4",
+            "actions": [
+                {
+                    "name": "Jump",
+                    "type": "Button",
+                    "id": "edf7c951-cb4e-46fb-ad5c-6eeef60e4294",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Accelerate",
+                    "type": "Button",
+                    "id": "c016f0b2-43f8-4c90-aadd-60c7876f7388",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "ff59ff42-c469-4249-8e67-bae6cc4be61d",
+                    "path": "",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Jump",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "d4d448e3-c69c-402f-ae8e-0e727cb5f0ea",
+                    "path": "",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Accelerate",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}
