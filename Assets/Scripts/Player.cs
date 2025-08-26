@@ -284,6 +284,7 @@ public class Player : MonoBehaviour
                 {
                     if (Input.GetKey(KeyCode.Space))
                     {
+                        Debug.Log("Input.GetKey(KeyCode.Space) : #1");
                         currentspeed = Mathf.SmoothStep(currentspeed, boost_speed, 2f * Time.deltaTime);
                     }
                 }
@@ -389,6 +390,7 @@ public class Player : MonoBehaviour
             GroundNormalRotation();
             if (Input.GetKey(KeyCode.Space))
             {
+                Debug.Log("Input.GetKey(KeyCode.Space) : #2");
                 transform.GetChild(0).GetChild(0).GetComponent<Animator>().SetBool("StartTurbo", true);
                 tires[2].transform.Rotate(-90 * Time.deltaTime * 75 / 5.5f, 0, 0);
                 tires[3].transform.Rotate(-90 * Time.deltaTime * 75 / 5.5f, 0, 0);
@@ -1360,6 +1362,7 @@ public class Player : MonoBehaviour
         {
             if (!Input.GetKey(KeyCode.Space))
             {
+                Debug.Log("Input.GetKey(KeyCode.Space) : #3");
                 currentspeed = Mathf.Lerp(currentspeed, 65, 2 * Time.deltaTime);
             }
             else
@@ -1371,6 +1374,7 @@ public class Player : MonoBehaviour
         //accelerate
         if (Input.GetKey(KeyCode.Space))
         {
+            Debug.Log("Input.GetKey(KeyCode.Space) : #4");
             currentspeed = Mathf.Lerp(currentspeed, max_speed, 0.5f * Time.deltaTime);
             if(!drift_right && !drift_left && (!item_manager.StarPowerUp || drift_left || drift_right))
                 rotate_strength = desired_rotate_strength;
@@ -1392,6 +1396,7 @@ public class Player : MonoBehaviour
         //slowdown by itself
         if (!Input.GetKey(KeyCode.Space))
         {
+            Debug.Log("Input.GetKey(KeyCode.Space) : #5");
             currentspeed = Mathf.Lerp(currentspeed, 0, 0.01f);
             drift_right = false;
             drift_left = false;
@@ -1405,6 +1410,7 @@ public class Player : MonoBehaviour
             max_speed = 30;
             if (Input.GetKey(KeyCode.Space))
             {
+                Debug.Log("Input.GetKey(KeyCode.Space) : #6");
                 currentspeed = Mathf.Lerp(currentspeed, max_speed, 3 * Time.deltaTime);
             }
 
@@ -1427,6 +1433,7 @@ public class Player : MonoBehaviour
             max_speed = boost_speed - 5;
             if (Input.GetKey(KeyCode.Space))
             {
+                Debug.Log("Input.GetKey(KeyCode.Space) : #7");
                 currentspeed = Mathf.Lerp(currentspeed, max_speed, 3 * Time.deltaTime);
             }
         }
@@ -1450,11 +1457,13 @@ public class Player : MonoBehaviour
 
         if((Input.GetKey(KeyCode.Space) && REALCURRENTSPEED < 0) || (currentspeed > 40 && REALCURRENTSPEED <= 5 && Input.GetKey(KeyCode.Space)))//skid effect
         {
+            Debug.Log("Input.GetKey(KeyCode.Space) : #8");
             reverseSkid = true;    
         }
 
         if (reverseSkid && REALCURRENTSPEED < 20 && Input.GetKey(KeyCode.Space) && !IN_WATER)
         {
+            Debug.Log("Input.GetKey(KeyCode.Space) : #9");
             AccelBeforeStartDust.GetChild(0).GetComponent<ParticleSystem>().Play();
             AccelBeforeStartDust.GetChild(1).GetComponent<ParticleSystem>().Play();
             if (!playersounds.effectSounds[20].isPlaying)
@@ -1478,11 +1487,13 @@ public class Player : MonoBehaviour
         //reverse face and animation
         if(Input.GetKey(KeyCode.S) && !Input.GetKey(KeyCode.Space) && REALCURRENTSPEED < 0 && !SpecialFace)
         {
+            Debug.Log("Input.GetKey(KeyCode.Space) : #10");
             reversing = true;
             Driver.SetBool("Reverse", true);
             reversingTime += Time.deltaTime;
         }
         else if (Input.GetKeyUp(KeyCode.S) || Input.GetKeyDown(KeyCode.Space)){
+            Debug.Log("Input.GetKey(KeyCode.Space) : #11");
             current_face_material = faces[0];
             Driver.SetBool("Reverse", false);
             reversing = false;
