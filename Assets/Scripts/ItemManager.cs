@@ -511,7 +511,26 @@ public class ItemManager : MonoBehaviour
 
         ItemUI.GetComponent<Animator>().SetBool("StartSelecting", true);
         ItemUI.transform.GetChild(0).GetChild(0).GetComponent<Animator>().SetBool("Scroll", true);
-        yield return new WaitForSeconds(4);
+        
+        // Minimum roulette time before player can stop it
+        float minimumRouletteTime = 1.5f;
+        float maxRouletteTime = 4f;
+        float elapsedTime = 0f;
+        
+        // Wait for minimum time, then allow early stopping
+        while (elapsedTime < maxRouletteTime)
+        {
+            elapsedTime += Time.deltaTime;
+            
+            // Check if player pressed item button after minimum time
+            if (elapsedTime >= minimumRouletteTime && (UseItemForwardTriggered || UseItemBackwardTriggered))
+            {
+                break; // Stop the roulette early
+            }
+            
+            yield return null;
+        }
+        
         item_gameobjects[item_index].SetActive(true); //show the gameobject
         if (item_gameobjects[item_index].tag != "Non-Hold-Item")
         {
