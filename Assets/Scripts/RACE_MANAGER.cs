@@ -110,7 +110,7 @@ public class RACE_MANAGER : MonoBehaviour
         
         if (Input.GetKeyDown(KeyCode.Alpha1) && RACE_STARTED && !RACE_COMPLETED) //if pressed 1 and back cam is not enabled, disable front cam and enable FP cam
         {
-            if (!Input.GetKey(KeyCode.B))
+            if (!Input.GetKey(KeyCode.LeftShift))
             {
                 FPCam = true;
                 FrontFPCam.SetActive(true);
@@ -120,14 +120,14 @@ public class RACE_MANAGER : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Alpha2) && RACE_STARTED && !RACE_COMPLETED) //if pressed 1 and back cam is not enabled, disable FrontFP cam and enable regular front cam
         {
-            if (!Input.GetKey(KeyCode.B))
+            if (!Input.GetKey(KeyCode.LeftShift))
             {
                 FPCam = false;
                 FrontFPCam.SetActive(false);
                 FrontCam.GetComponent<Camera>().enabled = true;
             }
         }
-        if (Input.GetKeyDown(KeyCode.B) && RACE_STARTED && !RACE_COMPLETED)
+        if (Input.GetKeyDown(KeyCode.LeftShift) && RACE_STARTED && !RACE_COMPLETED)
         {
             if (FPCam)
             {
@@ -141,7 +141,7 @@ public class RACE_MANAGER : MonoBehaviour
             }
 
         }
-        if (Input.GetKeyUp(KeyCode.B) && RACE_STARTED && !RACE_COMPLETED)
+        if (Input.GetKeyUp(KeyCode.LeftShift) && RACE_STARTED && !RACE_COMPLETED)
         {
             if (FPCam)
             {
