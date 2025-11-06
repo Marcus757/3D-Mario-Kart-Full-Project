@@ -1,11 +1,19 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using System.Linq;
 
 
 public class RACE_MANAGER : MonoBehaviour
 {
+    private GameControls controls;
+    
+    private bool CameraFPTriggered => controls.Gameplay.CameraFP.triggered;
+    private bool CameraRegularTriggered => controls.Gameplay.CameraRegular.triggered;
+    private bool LookBackPressed => controls.Gameplay.LookBack.IsPressed();
+    private bool LookBackReleased => controls.Gameplay.LookBack.WasReleasedThisFrame();
+    
     public GameObject FrontCam;
     public GameObject FrontFPCam;
     public GameObject BackCam;
@@ -72,7 +80,19 @@ public class RACE_MANAGER : MonoBehaviour
     void Awake()
     {
         Application.targetFrameRate = 60;
+        controls = new GameControls();
     }
+    
+    private void OnEnable()
+    {
+        controls.Gameplay.Enable();
+    }
+    
+    private void OnDisable()
+    {
+        controls.Gameplay.Disable();
+    }
+    
     // Start is called before the first frame update
     void Start()
     {
@@ -108,9 +128,9 @@ public class RACE_MANAGER : MonoBehaviour
         }
         //camera stuff
         
-        if (Input.GetKeyDown(KeyCode.Alpha1) && RACE_STARTED && !RACE_COMPLETED) //if pressed 1 and back cam is not enabled, disable front cam and enable FP cam
+        if (CameraFPTriggered && RACE_STARTED && !RACE_COMPLETED) //if pressed 1 and back cam is not enabled, disable front cam and enable FP cam
         {
-            if (!Input.GetKey(KeyCode.LeftShift))
+            if (!LookBackPressed)
             {
                 FPCam = true;
                 FrontFPCam.SetActive(true);
@@ -118,16 +138,16 @@ public class RACE_MANAGER : MonoBehaviour
             }
         }
 
-        if (Input.GetKeyDown(KeyCode.Alpha2) && RACE_STARTED && !RACE_COMPLETED) //if pressed 1 and back cam is not enabled, disable FrontFP cam and enable regular front cam
+        if (CameraRegularTriggered && RACE_STARTED && !RACE_COMPLETED) //if pressed 2 and back cam is not enabled, disable FrontFP cam and enable regular front cam
         {
-            if (!Input.GetKey(KeyCode.LeftShift))
+            if (!LookBackPressed)
             {
                 FPCam = false;
                 FrontFPCam.SetActive(false);
                 FrontCam.GetComponent<Camera>().enabled = true;
             }
         }
-        if (Input.GetKeyDown(KeyCode.LeftShift) && RACE_STARTED && !RACE_COMPLETED)
+        if (LookBackPressed && RACE_STARTED && !RACE_COMPLETED)
         {
             if (FPCam)
             {
@@ -141,7 +161,7 @@ public class RACE_MANAGER : MonoBehaviour
             }
 
         }
-        if (Input.GetKeyUp(KeyCode.LeftShift) && RACE_STARTED && !RACE_COMPLETED)
+        if (LookBackReleased && RACE_STARTED && !RACE_COMPLETED)
         {
             if (FPCam)
             {

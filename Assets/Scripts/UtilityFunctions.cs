@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 using System;
 
 public class UtilityFunctions : MonoBehaviour
 {
+    private GameControls controls;
     private PlayerSounds playersounds;
     private Player playerscript;
 
@@ -19,6 +21,21 @@ public class UtilityFunctions : MonoBehaviour
 
 
 
+    private void Awake()
+    {
+        controls = new GameControls();
+    }
+    
+    private void OnEnable()
+    {
+        controls.Gameplay.Enable();
+    }
+    
+    private void OnDisable()
+    {
+        controls.Gameplay.Disable();
+    }
+    
     // Start is called before the first frame update
     void Start()
     {
@@ -49,7 +66,7 @@ public class UtilityFunctions : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (Input.GetKey(KeyCode.V))
+        if (controls.Gameplay.Drift.IsPressed())
         {
             drifting = true;
         }

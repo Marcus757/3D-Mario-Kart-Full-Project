@@ -1,9 +1,25 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class Player : MonoBehaviour
 {
+    private GameControls controls;
+    
+    // Input convenience properties
+    private bool AcceleratePressed => controls.Gameplay.Accelerate.IsPressed();
+    private bool BrakePressed => controls.Gameplay.Brake.IsPressed();
+    private bool DriftPressed => controls.Gameplay.Drift.IsPressed();
+    private bool DriftTriggered => controls.Gameplay.Drift.triggered;
+    private bool LookBackPressed => controls.Gameplay.LookBack.IsPressed();
+    private bool GliderUpPressed => controls.Gameplay.GliderUp.IsPressed();
+    private bool GliderDownPressed => controls.Gameplay.GliderDown.IsPressed();
+    private float SteerValue => controls.Gameplay.Steer.ReadValue<float>();
+    private bool SteerNotZero => Mathf.Abs(SteerValue) > 0.1f;
+    private bool SteerLeft => SteerValue < -0.1f;
+    private bool SteerRight => SteerValue > 0.1f;
+    
     [HideInInspector]
     public bool Boost = false;
 
@@ -197,6 +213,21 @@ public class Player : MonoBehaviour
 
 
 
+    private void Awake()
+    {
+        controls = new GameControls();
+    }
+    
+    private void OnEnable()
+    {
+        controls.Gameplay.Enable();
+    }
+    
+    private void OnDisable()
+    {
+        controls.Gameplay.Disable();
+    }
+    
     // Start is called before the first frame update
     void Start()
     {
@@ -226,7 +257,7 @@ public class Player : MonoBehaviour
 
     private void Update()
     {
-        if (trickAvailable && Input.GetKeyDown(KeyCode.Space) && REALCURRENTSPEED > 40 && !GLIDER_FLY)
+        if (trickAvailable && DriftTriggered && REALCURRENTSPEED > 40 && !GLIDER_FLY)
         {
 
             trickAvailable = false;
@@ -282,7 +313,7 @@ public class Player : MonoBehaviour
                 }
                 for(int i = 0; i < 60; i++)
                 {
-                    if (Input.GetKey(KeyCode.W))
+                    if (AcceleratePressed)
                     {
                         currentspeed = Mathf.SmoothStep(currentspeed, boost_speed, 2f * Time.deltaTime);
                     }
@@ -305,7 +336,7 @@ public class Player : MonoBehaviour
 
 
             //dust particles
-            if (REALCURRENTSPEED > 30 && !drift_left && !drift_right && !GLIDER_FLY && !JUMP_PANEL && Input.GetKey(KeyCode.W) && grounded && !item_manager.isBullet && Is_Dirt_Track)
+            if (REALCURRENTSPEED > 30 && !drift_left && !drift_right && !GLIDER_FLY && !JUMP_PANEL && AcceleratePressed && grounded && !item_manager.isBullet && Is_Dirt_Track)
             {
                 dustParticles.GetChild(0).GetComponent<ParticleSystem>().Play();
                 dustParticles.GetChild(1).GetComponent<ParticleSystem>().Play();
@@ -387,7 +418,7 @@ public class Player : MonoBehaviour
         else if(!RACE_MANAGER.RACE_STARTED && !RACE_MANAGER.RACE_COMPLETED) //before race starts
         {
             GroundNormalRotation();
-            if (Input.GetKey(KeyCode.W))
+            if (AcceleratePressed)
             {
                 transform.GetChild(0).GetChild(0).GetComponent<Animator>().SetBool("StartTurbo", true);
                 tires[2].transform.Rotate(-90 * Time.deltaTime * 75 / 5.5f, 0, 0);
@@ -1346,7 +1377,7 @@ public class Player : MonoBehaviour
         if(GLIDER_FLY)
         {
             Vector3 newVel = rb.velocity;
-            if (!Input.GetKey(KeyCode.S))
+            if (!BrakePressed)
             {
                 newVel.y *= 0.75f;
             }
@@ -1358,7 +1389,7 @@ public class Player : MonoBehaviour
         }
         if (GLIDER_FLY)
         {
-            if (!Input.GetKey(KeyCode.W))
+            if (!AcceleratePressed)
             {
                 currentspeed = Mathf.Lerp(currentspeed, 65, 2 * Time.deltaTime);
             }
@@ -1369,7 +1400,7 @@ public class Player : MonoBehaviour
         }
 
         //accelerate
-        if (Input.GetKey(KeyCode.W))
+        if (AcceleratePressed)
         {
             currentspeed = Mathf.Lerp(currentspeed, max_speed, 0.5f * Time.deltaTime);
             if(!drift_right && !drift_left && (!item_manager.StarPowerUp || drift_left || drift_right))
@@ -1380,7 +1411,7 @@ public class Player : MonoBehaviour
             }
         }
         //reverse
-        if (Input.GetKey(KeyCode.S) && !GLIDER_FLY)
+        if (BrakePressed && !GLIDER_FLY)
         {
             currentspeed = Mathf.Lerp(currentspeed, -max_speed / 1.6f, 0.03f);
             if(REALCURRENTSPEED <= 0)
@@ -1390,7 +1421,7 @@ public class Player : MonoBehaviour
             
         }
         //slowdown by itself
-        if (!Input.GetKey(KeyCode.W))
+        if (!AcceleratePressed)
         {
             currentspeed = Mathf.Lerp(currentspeed, 0, 0.01f);
             drift_right = false;
@@ -1403,7 +1434,7 @@ public class Player : MonoBehaviour
         if (!grounded && !Boost && !item_manager.StarPowerUp)
         {
             max_speed = 30;
-            if (Input.GetKey(KeyCode.W))
+            if (AcceleratePressed)
             {
                 currentspeed = Mathf.Lerp(currentspeed, max_speed, 3 * Time.deltaTime);
             }
@@ -1425,7 +1456,7 @@ public class Player : MonoBehaviour
         if (item_manager.StarPowerUp)
         {
             max_speed = boost_speed - 5;
-            if (Input.GetKey(KeyCode.W))
+            if (AcceleratePressed)
             {
                 currentspeed = Mathf.Lerp(currentspeed, max_speed, 3 * Time.deltaTime);
             }
@@ -1448,12 +1479,12 @@ public class Player : MonoBehaviour
         }
 
 
-        if((Input.GetKey(KeyCode.W) && REALCURRENTSPEED < 0) || (currentspeed > 40 && REALCURRENTSPEED <= 5 && Input.GetKey(KeyCode.W)))//skid effect
+        if((AcceleratePressed && REALCURRENTSPEED < 0) || (currentspeed > 40 && REALCURRENTSPEED <= 5 && AcceleratePressed))//skid effect
         {
             reverseSkid = true;    
         }
 
-        if (reverseSkid && REALCURRENTSPEED < 20 && Input.GetKey(KeyCode.W) && !IN_WATER)
+        if (reverseSkid && REALCURRENTSPEED < 20 && AcceleratePressed && !IN_WATER)
         {
             AccelBeforeStartDust.GetChild(0).GetComponent<ParticleSystem>().Play();
             AccelBeforeStartDust.GetChild(1).GetComponent<ParticleSystem>().Play();
@@ -1470,19 +1501,19 @@ public class Player : MonoBehaviour
             AccelBeforeStartDust.GetChild(0).GetComponent<ParticleSystem>().Stop();
             AccelBeforeStartDust.GetChild(1).GetComponent<ParticleSystem>().Stop();
             playersounds.effectSounds[20].Stop();
-            if(!Input.GetKey(KeyCode.LeftShift) && GameObject.Find("RaceManager").GetComponent<RACE_MANAGER>().FrontCam.activeSelf)
+            if(!LookBackPressed && GameObject.Find("RaceManager").GetComponent<RACE_MANAGER>().FrontCam.activeSelf)
                 GameObject.Find("Main Camera").GetComponent<Animator>().SetBool("Vibrate", false);
 
         }
 
         //reverse face and animation
-        if(Input.GetKey(KeyCode.S) && !Input.GetKey(KeyCode.W) && REALCURRENTSPEED < 0 && !SpecialFace)
+        if(BrakePressed && !AcceleratePressed && REALCURRENTSPEED < 0 && !SpecialFace)
         {
             reversing = true;
             Driver.SetBool("Reverse", true);
             reversingTime += Time.deltaTime;
         }
-        else if (Input.GetKeyUp(KeyCode.S) || Input.GetKeyDown(KeyCode.W)){
+        else if (!BrakePressed || AcceleratePressed){
             current_face_material = faces[0];
             Driver.SetBool("Reverse", false);
             reversing = false;
@@ -1550,14 +1581,14 @@ public class Player : MonoBehaviour
         float force = 50000;
 
         //steer
-        if (Input.GetAxis("Horizontal") != 0)
+        if (SteerNotZero)
         {
             
 
             //turning mechanism if drifting
             if (drift_right && !drift_left)
             {
-                direction = Input.GetAxis("Horizontal") > 0 ? 2.1f : 0.5f;
+                direction = SteerValue > 0 ? 2.1f : 0.5f;
                 transform.GetChild(0).localRotation = Quaternion.Lerp(transform.GetChild(0).localRotation, Quaternion.Euler(0, 20f, 0), 8f * Time.deltaTime);
                 max_speed = desiredMaxSpeed - 10;
 
@@ -1575,7 +1606,7 @@ public class Player : MonoBehaviour
             }
             if (drift_left && !drift_right)
             {
-                direction = Input.GetAxis("Horizontal") < 0 ? -2.1f : -0.5f;
+                direction = SteerValue < 0 ? -2.1f : -0.5f;
                 transform.GetChild(0).localRotation = Quaternion.Lerp(transform.GetChild(0).localRotation, Quaternion.Euler(0, -20f, 0), 8f * Time.deltaTime);
                 max_speed = desiredMaxSpeed - 10;
 
@@ -1609,20 +1640,20 @@ public class Player : MonoBehaviour
             if (REALCURRENTSPEED >= 40 && !drift_right && !drift_left)
                 speed_rotate_rate = 1.75f;
 
-            if (REALCURRENTSPEED < -5 && !Input.GetKey(KeyCode.W)) //reverse
+            if (REALCURRENTSPEED < -5 && !AcceleratePressed) //reverse
                 speed_rotate_rate = -0.5f;
 
 
             //final rotations
             //transform.localEulerAngles = Vector3.Lerp(transform.localEulerAngles, new Vector3(transform.localEulerAngles.x, transform.localEulerAngles.y + rotate_strength * direction * speed_rotate_rate, transform.localEulerAngles.z), 1f * Time.deltaTime); //which direction to rotate kart 
 
-            if(Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.A))
+            if(SteerNotZero)
                 transform.Rotate(new Vector3(0, rotate_strength * direction * speed_rotate_rate * 0.025f, 0), Space.Self); //changed to suit anti-gravity contitions from the euler angle method
         }
 
         if (!drift_right && !drift_left) //no drift
         {
-            direction = Input.GetAxis("Horizontal") > 0 ? 1 : -1; //-1 = left, 1 = right
+            direction = SteerValue > 0 ? 1 : -1; //-1 = left, 1 = right
             transform.GetChild(0).localRotation = Quaternion.Lerp(transform.GetChild(0).localRotation, Quaternion.Euler(0, 0, 0), 8f * Time.deltaTime);
             max_speed = desiredMaxSpeed;
 
@@ -1646,7 +1677,7 @@ public class Player : MonoBehaviour
         
 
         //drift hop
-        if (Input.GetKeyDown(KeyCode.Space) && ! GLIDER_FLY && ! JUMP_PANEL && onGround)
+        if (DriftTriggered && ! GLIDER_FLY && ! JUMP_PANEL && onGround)
         {
             transform.GetChild(0).gameObject.GetComponent<Animator>().SetTrigger("Drift");
 
@@ -1669,7 +1700,7 @@ public class Player : MonoBehaviour
         }
 
         //while space is pressed, you are drifting
-        if (Input.GetKey(KeyCode.Space) && grounded && currentspeed > 40 && Input.GetAxis("Horizontal") != 0 && ! GLIDER_FLY && !JUMP_PANEL && !HitByBanana_ && !HitByShell_)
+        if (DriftPressed && grounded && currentspeed > 40 && SteerNotZero && ! GLIDER_FLY && !JUMP_PANEL && !HitByBanana_ && !HitByShell_)
         {
             rotate_strength = Mathf.Lerp(rotate_strength, desired_rotate_strength, 3 * Time.deltaTime);
             Drift_time += Time.deltaTime;
@@ -1805,7 +1836,7 @@ public class Player : MonoBehaviour
 
 
         //no more drift
-        if (!Input.GetKey(KeyCode.Space)) //if not drifting, or drifting without direction
+        if (!DriftPressed) //if not drifting, or drifting without direction
         {
 
             drifting = false;
@@ -1890,17 +1921,17 @@ public class Player : MonoBehaviour
     }
     void player_animations()
     {
-        if (!Input.GetKey(KeyCode.A) && !Input.GetKey(KeyCode.D))
+        if (!SteerLeft && !SteerRight)
         {
             Driver.SetBool("TurnLeft", false);
             Driver.SetBool("TurnRight", false);
         }
-        if (Input.GetKey(KeyCode.D))
+        if (SteerRight)
         {
             Driver.SetBool("TurnLeft", false);
             Driver.SetBool("TurnRight", true);
         }
-        if(Input.GetKey(KeyCode.A))
+        if(SteerLeft)
         {
             Driver.SetBool("TurnLeft", true);
             Driver.SetBool("TurnRight", false);
@@ -1934,7 +1965,7 @@ public class Player : MonoBehaviour
         if (!antiGravity)
         {
             //tire gameObject steer and rotate and steeringwheel rotate
-            float x = Input.GetAxis("Horizontal"); //direction 
+            float x = SteerValue; //direction 
             float rotate_speed = 12f;
             if (x >= 0.1)
             {
@@ -1973,7 +2004,7 @@ public class Player : MonoBehaviour
           //tire spinning
         for (int i = 0; i < 4; i++)
         {
-            if (Input.GetKey(KeyCode.W) && REALCURRENTSPEED < 0)
+            if (AcceleratePressed && REALCURRENTSPEED < 0)
             {
 
                 tires[0].transform.Rotate(-90 * Time.deltaTime * REALCURRENTSPEED * 0.5f, 0, 0);
@@ -2086,7 +2117,7 @@ public class Player : MonoBehaviour
         glidingTime += Time.deltaTime;
 
         float none = 0;
-        inputHorizontalSmooth = Mathf.SmoothDamp(inputHorizontalSmooth, Input.GetAxis("Horizontal") * -1, ref none, 5 * Time.deltaTime);
+        inputHorizontalSmooth = Mathf.SmoothDamp(inputHorizontalSmooth, SteerValue * -1, ref none, 5 * Time.deltaTime);
         if (RACE_MANAGER.RACE_COMPLETED)
         {
             inputHorizontalSmooth = 0;
@@ -2112,12 +2143,12 @@ public class Player : MonoBehaviour
         //turn left and right, up and down
         
         {
-            if (Input.GetKey(KeyCode.W) && !RACE_MANAGER.RACE_COMPLETED)
+            if (GliderUpPressed && !RACE_MANAGER.RACE_COMPLETED)
             {
                 kart.rotation = Quaternion.SlerpUnclamped(kart.rotation, Quaternion.Euler(25 + glideAngleX, kart.eulerAngles.y, kart.eulerAngles.z), 1.5f * Time.deltaTime);
                 rb.AddForce(Vector3.down * 2000 * Time.deltaTime, ForceMode.Acceleration);
             }
-            else if (Input.GetKey(KeyCode.S) && !RACE_MANAGER.RACE_COMPLETED)
+            else if (GliderDownPressed && !RACE_MANAGER.RACE_COMPLETED)
             {
                 float angle = transform.localEulerAngles.x;
                 angle = (angle > 180) ? angle - 360 : angle;
@@ -2752,7 +2783,7 @@ public class Player : MonoBehaviour
     {
         if (Is_Dirt_Track)
         {
-            if (Input.GetKey(KeyCode.W) && !item_manager.isBullet && !item_manager.StarPowerUp)
+            if (AcceleratePressed && !item_manager.isBullet && !item_manager.StarPowerUp)
             {
                 for(int i = 0; i < tireRenderers.Length; i++)
                 {

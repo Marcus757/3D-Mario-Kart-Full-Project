@@ -2,10 +2,31 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 
 
 public class ItemManager : MonoBehaviour
 {
+    private GameControls controls;
+    
+    private bool UseItemForwardTriggered => controls.Gameplay.UseItemForward.triggered;
+    private bool UseItemBackwardTriggered => controls.Gameplay.UseItemBackward.triggered;
+    
+    private void Awake()
+    {
+        controls = new GameControls();
+    }
+    
+    private void OnEnable()
+    {
+        controls.Gameplay.Enable();
+    }
+    
+    private void OnDisable()
+    {
+        controls.Gameplay.Disable();
+    }
+    
     private Player player_script;
     private PlayerSounds playersounds;
     bool start_select = false;
@@ -102,11 +123,11 @@ public class ItemManager : MonoBehaviour
             }
 
 
-            if ((Input.GetKeyDown(KeyCode.RightShift) || Input.GetKeyDown(KeyCode.DownArrow)) && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_) //if item array order changes, change the indexes of utility methods and these if statements
+            if ((UseItemForwardTriggered || UseItemBackwardTriggered) && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_) //if item array order changes, change the indexes of utility methods and these if statements
             {
                 if (current_Item.Equals("GreenShell")) //.Equals, not ==
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                             if (CurrentTrailingItem != null)
                             {
@@ -119,7 +140,7 @@ public class ItemManager : MonoBehaviour
                             current_Item = ""; //1 use only
                             used_Item_Done();
                         }
-                    else if (Input.GetKeyDown(KeyCode.DownArrow))
+                    else if (UseItemBackwardTriggered)
                     {
                         if(CurrentTrailingItem == null)
                         {
@@ -151,14 +172,14 @@ public class ItemManager : MonoBehaviour
                 else if (current_Item.Equals("TripleGreenShells") && tripleItemCount > 0)
                 {
 
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         item_gameobjects[2].SetActive(true);
                         StartCoroutine(spawnShell(shellSpawnPos, 1));
                         tripleItemCount--;
                     }
-                    else if (Input.GetKeyDown(KeyCode.DownArrow))
+                    else if (UseItemBackwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowBackward");
                         item_gameobjects[2].SetActive(true);
@@ -182,7 +203,7 @@ public class ItemManager : MonoBehaviour
                 } //THIS IS FOR TRIPLE GREEEN SHELLS
                 else if (current_Item.Equals("RedShell"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                             if (CurrentTrailingItem != null)
                             {
@@ -195,7 +216,7 @@ public class ItemManager : MonoBehaviour
                         current_Item = ""; //1 use only
                         used_Item_Done();
                     }
-                    else if (Input.GetKeyDown(KeyCode.DownArrow))
+                    else if (UseItemBackwardTriggered)
                     {
                             if (CurrentTrailingItem == null)
                             {
@@ -223,14 +244,14 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("TripleRedShells") && tripleItemCount > 0)
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         item_gameobjects[4].SetActive(true);
                         StartCoroutine(spawnRedShell(shellSpawnPos, 1));
                         tripleItemCount--;
                     }
-                    else if (Input.GetKeyDown(KeyCode.DownArrow))
+                    else if (UseItemBackwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowBackward");
                         item_gameobjects[4].SetActive(true);
@@ -253,7 +274,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Mushroom"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Boost_time = 2f;
                         for (int i = 0; i < player_script.BoostBurstPS.transform.childCount; i++) //boost burst
@@ -272,7 +293,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("TripleMushroom") && tripleItemCount > 0)
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Boost_time = 2.5f;
                         tripleItemCount--;
@@ -299,7 +320,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Banana"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         if(CurrentTrailingItem != null)
                             {
@@ -311,7 +332,7 @@ public class ItemManager : MonoBehaviour
                             current_Item = ""; //1 use only
                             used_Item_Done();
                     }
-                    if (Input.GetKeyDown(KeyCode.DownArrow))
+                    if (UseItemBackwardTriggered)
                     {
                             if (CurrentTrailingItem == null)
                             {
@@ -337,12 +358,12 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("TripleBananas"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         StartCoroutine(spawnBanana(1));
                     }
-                    if (Input.GetKeyDown(KeyCode.DownArrow))
+                    if (UseItemBackwardTriggered)
                     {
                         StartCoroutine(spawnBanana(-1));
                         
@@ -366,7 +387,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("GoldenMushroom"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         startMushroomTimer = true;
                         player_script.Boost_time = 2f;
@@ -392,7 +413,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Coin"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         StartCoroutine(UseCoin());
                             current_Item = ""; //1 use only
@@ -403,7 +424,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("ItemStar"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         current_Item = ""; //1 use only
                         used_Item_Done();
@@ -414,7 +435,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Bullet"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift) && !player_script.JUMP_PANEL)
+                    if (UseItemForwardTriggered && !player_script.JUMP_PANEL)
                     {
                             if (!player_script.antiGravity)
                             {
@@ -434,14 +455,14 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Bobomb-Hold"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         StartCoroutine(useBobomb(1));
                         used_Item_Done();
                         current_Item = "";
                     }
-                    else if (Input.GetKeyDown(KeyCode.DownArrow))
+                    else if (UseItemBackwardTriggered)
                     {
                             player_script.Driver.SetTrigger("ThrowBackward");
                             StartCoroutine(useBobomb(-1));
@@ -451,7 +472,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("BlueShell"))
                 {
-                    if (Input.GetKeyDown(KeyCode.RightShift))
+                    if (UseItemForwardTriggered)
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         StartCoroutine(useBlueShell());
