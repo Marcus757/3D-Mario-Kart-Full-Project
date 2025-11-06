@@ -640,3 +640,4 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
     }
 }
 
+
