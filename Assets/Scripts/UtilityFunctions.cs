@@ -107,7 +107,11 @@ public class UtilityFunctions : MonoBehaviour
     }
     public void playCoinSound()
     {
-        GetComponent<AudioSource>().Play();
+        AudioSource audioSource = GetComponent<AudioSource>();
+        if (audioSource != null && audioSource.enabled && audioSource.isActiveAndEnabled)
+        {
+            audioSource.Play();
+        }
     }
     public void playHopSound()
     {
