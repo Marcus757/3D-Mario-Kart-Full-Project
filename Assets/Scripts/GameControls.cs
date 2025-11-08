@@ -64,7 +64,7 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                     ""initialStateCheck"": false
                 },
                 {
-                    ""name"": ""UseItemForward"",
+                    ""name"": ""UseItem"",
                     ""type"": ""Button"",
                     ""id"": ""e5f6a7b8-c9d0-1234-ef12-345678901234"",
                     ""expectedControlType"": ""Button"",
@@ -73,7 +73,7 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                     ""initialStateCheck"": false
                 },
                 {
-                    ""name"": ""UseItemBackward"",
+                    ""name"": ""AimBackward"",
                     ""type"": ""Button"",
                     ""id"": ""f6a7b8c9-d0e1-2345-f123-456789012345"",
                     ""expectedControlType"": ""Button"",
@@ -141,8 +141,19 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
-                    ""id"": ""2b3c4d5e-6f7a-8901-bcde-222222222222"",
-                    ""path"": ""<Gamepad>/rightTrigger"",
+                    ""id"": ""6b7c8d9e-0f1a-2345-b678-aaaaaaaaaaaa"",
+                    ""path"": ""<Gamepad>/buttonSouth"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Gamepad"",
+                    ""action"": ""Accelerate"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""7c8d9e0f-1a2b-3456-c789-bbbbbbbbbbbb"",
+                    ""path"": ""<Gamepad>/buttonNorth"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Gamepad"",
@@ -164,7 +175,7 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 {
                     ""name"": """",
                     ""id"": ""4d5e6f7a-8b9c-0123-def1-444444444444"",
-                    ""path"": ""<Gamepad>/leftTrigger"",
+                    ""path"": ""<Gamepad>/buttonEast"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Gamepad"",
@@ -230,7 +241,18 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 {
                     ""name"": """",
                     ""id"": ""0d1e2f3a-4b5c-6789-4567-aaaaaaaaaaaa"",
-                    ""path"": ""<Gamepad>/buttonSouth"",
+                    ""path"": ""<Gamepad>/rightShoulder"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Gamepad"",
+                    ""action"": ""Drift"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""6a4b5c6d-7e8f-0123-6789-eeeeeeeeeeee"",
+                    ""path"": ""<Gamepad>/rightTrigger"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Gamepad"",
@@ -241,51 +263,62 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 {
                     ""name"": """",
                     ""id"": ""1e2f3a4b-5c6d-7890-5678-bbbbbbbbbbbb"",
-                    ""path"": ""<Keyboard>/rightShift"",
+                    ""path"": ""<Keyboard>/leftShift"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Keyboard&Mouse"",
-                    ""action"": ""UseItemForward"",
+                    ""action"": ""UseItem"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 },
                 {
                     ""name"": """",
                     ""id"": ""2f3a4b5c-6d7e-8901-6789-cccccccccccc"",
-                    ""path"": ""<Gamepad>/buttonEast"",
+                    ""path"": ""<Gamepad>/leftShoulder"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Gamepad"",
-                    ""action"": ""UseItemForward"",
+                    ""action"": ""UseItem"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 },
                 {
                     ""name"": """",
-                    ""id"": ""3a4b5c6d-7e8f-9012-789a-dddddddddddd"",
+                    ""id"": ""3f4a5b6c-7d8e-9012-789a-dddddddddddd"",
+                    ""path"": ""<Gamepad>/leftTrigger"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Gamepad"",
+                    ""action"": ""UseItem"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""3f4a5b6c-7d8e-9012-789a-aaaaaaaaaaab"",
+                    ""path"": ""<Gamepad>/leftStick/down"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Gamepad"",
+                    ""action"": ""AimBackward"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""4f5a6b7c-8d9e-0123-89ab-bbbbbbbbbbcc"",
                     ""path"": ""<Keyboard>/downArrow"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Keyboard&Mouse"",
-                    ""action"": ""UseItemBackward"",
-                    ""isComposite"": false,
-                    ""isPartOfComposite"": false
-                },
-                {
-                    ""name"": """",
-                    ""id"": ""4b5c6d7e-8f9a-0123-89ab-eeeeeeeeeeee"",
-                    ""path"": ""<Gamepad>/buttonWest"",
-                    ""interactions"": """",
-                    ""processors"": """",
-                    ""groups"": ""Gamepad"",
-                    ""action"": ""UseItemBackward"",
+                    ""action"": ""AimBackward"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 },
                 {
                     ""name"": """",
                     ""id"": ""5c6d7e8f-9a0b-1234-9abc-ffffffffffff"",
-                    ""path"": ""<Keyboard>/leftShift"",
+                    ""path"": ""<Keyboard>/rightShift"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Keyboard&Mouse"",
@@ -296,7 +329,7 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 {
                     ""name"": """",
                     ""id"": ""6d7e8f9a-0b1c-2345-abcd-000000000000"",
-                    ""path"": ""<Gamepad>/leftShoulder"",
+                    ""path"": ""<Gamepad>/buttonWest"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": ""Gamepad"",
@@ -431,8 +464,8 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
         m_Gameplay_Brake = m_Gameplay.FindAction("Brake", throwIfNotFound: true);
         m_Gameplay_Steer = m_Gameplay.FindAction("Steer", throwIfNotFound: true);
         m_Gameplay_Drift = m_Gameplay.FindAction("Drift", throwIfNotFound: true);
-        m_Gameplay_UseItemForward = m_Gameplay.FindAction("UseItemForward", throwIfNotFound: true);
-        m_Gameplay_UseItemBackward = m_Gameplay.FindAction("UseItemBackward", throwIfNotFound: true);
+        m_Gameplay_UseItem = m_Gameplay.FindAction("UseItem", throwIfNotFound: true);
+        m_Gameplay_AimBackward = m_Gameplay.FindAction("AimBackward", throwIfNotFound: true);
         m_Gameplay_LookBack = m_Gameplay.FindAction("LookBack", throwIfNotFound: true);
         m_Gameplay_CameraFP = m_Gameplay.FindAction("CameraFP", throwIfNotFound: true);
         m_Gameplay_CameraRegular = m_Gameplay.FindAction("CameraRegular", throwIfNotFound: true);
@@ -501,8 +534,8 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
     private readonly InputAction m_Gameplay_Brake;
     private readonly InputAction m_Gameplay_Steer;
     private readonly InputAction m_Gameplay_Drift;
-    private readonly InputAction m_Gameplay_UseItemForward;
-    private readonly InputAction m_Gameplay_UseItemBackward;
+    private readonly InputAction m_Gameplay_UseItem;
+    private readonly InputAction m_Gameplay_AimBackward;
     private readonly InputAction m_Gameplay_LookBack;
     private readonly InputAction m_Gameplay_CameraFP;
     private readonly InputAction m_Gameplay_CameraRegular;
@@ -516,8 +549,8 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
         public InputAction @Brake => m_Wrapper.m_Gameplay_Brake;
         public InputAction @Steer => m_Wrapper.m_Gameplay_Steer;
         public InputAction @Drift => m_Wrapper.m_Gameplay_Drift;
-        public InputAction @UseItemForward => m_Wrapper.m_Gameplay_UseItemForward;
-        public InputAction @UseItemBackward => m_Wrapper.m_Gameplay_UseItemBackward;
+        public InputAction @UseItem => m_Wrapper.m_Gameplay_UseItem;
+        public InputAction @AimBackward => m_Wrapper.m_Gameplay_AimBackward;
         public InputAction @LookBack => m_Wrapper.m_Gameplay_LookBack;
         public InputAction @CameraFP => m_Wrapper.m_Gameplay_CameraFP;
         public InputAction @CameraRegular => m_Wrapper.m_Gameplay_CameraRegular;
@@ -544,12 +577,12 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 @Drift.started -= m_Wrapper.m_GameplayActionsCallbackInterface.OnDrift;
                 @Drift.performed -= m_Wrapper.m_GameplayActionsCallbackInterface.OnDrift;
                 @Drift.canceled -= m_Wrapper.m_GameplayActionsCallbackInterface.OnDrift;
-                @UseItemForward.started -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItemForward;
-                @UseItemForward.performed -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItemForward;
-                @UseItemForward.canceled -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItemForward;
-                @UseItemBackward.started -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItemBackward;
-                @UseItemBackward.performed -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItemBackward;
-                @UseItemBackward.canceled -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItemBackward;
+                @UseItem.started -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItem;
+                @UseItem.performed -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItem;
+                @UseItem.canceled -= m_Wrapper.m_GameplayActionsCallbackInterface.OnUseItem;
+                @AimBackward.started -= m_Wrapper.m_GameplayActionsCallbackInterface.OnAimBackward;
+                @AimBackward.performed -= m_Wrapper.m_GameplayActionsCallbackInterface.OnAimBackward;
+                @AimBackward.canceled -= m_Wrapper.m_GameplayActionsCallbackInterface.OnAimBackward;
                 @LookBack.started -= m_Wrapper.m_GameplayActionsCallbackInterface.OnLookBack;
                 @LookBack.performed -= m_Wrapper.m_GameplayActionsCallbackInterface.OnLookBack;
                 @LookBack.canceled -= m_Wrapper.m_GameplayActionsCallbackInterface.OnLookBack;
@@ -581,12 +614,12 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
                 @Drift.started += instance.OnDrift;
                 @Drift.performed += instance.OnDrift;
                 @Drift.canceled += instance.OnDrift;
-                @UseItemForward.started += instance.OnUseItemForward;
-                @UseItemForward.performed += instance.OnUseItemForward;
-                @UseItemForward.canceled += instance.OnUseItemForward;
-                @UseItemBackward.started += instance.OnUseItemBackward;
-                @UseItemBackward.performed += instance.OnUseItemBackward;
-                @UseItemBackward.canceled += instance.OnUseItemBackward;
+                @UseItem.started += instance.OnUseItem;
+                @UseItem.performed += instance.OnUseItem;
+                @UseItem.canceled += instance.OnUseItem;
+                @AimBackward.started += instance.OnAimBackward;
+                @AimBackward.performed += instance.OnAimBackward;
+                @AimBackward.canceled += instance.OnAimBackward;
                 @LookBack.started += instance.OnLookBack;
                 @LookBack.performed += instance.OnLookBack;
                 @LookBack.canceled += instance.OnLookBack;
@@ -630,8 +663,8 @@ public partial class @GameControls : IInputActionCollection2, IDisposable
         void OnBrake(InputAction.CallbackContext context);
         void OnSteer(InputAction.CallbackContext context);
         void OnDrift(InputAction.CallbackContext context);
-        void OnUseItemForward(InputAction.CallbackContext context);
-        void OnUseItemBackward(InputAction.CallbackContext context);
+        void OnUseItem(InputAction.CallbackContext context);
+        void OnAimBackward(InputAction.CallbackContext context);
         void OnLookBack(InputAction.CallbackContext context);
         void OnCameraFP(InputAction.CallbackContext context);
         void OnCameraRegular(InputAction.CallbackContext context);

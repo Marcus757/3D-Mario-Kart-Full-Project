@@ -42,7 +42,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "UseItemForward",
+                    "name": "UseItem",
                     "type": "Button",
                     "id": "e5f6a7b8-c9d0-1234-ef12-345678901234",
                     "expectedControlType": "Button",
@@ -51,7 +51,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "UseItemBackward",
+                    "name": "AimBackward",
                     "type": "Button",
                     "id": "f6a7b8c9-d0e1-2345-f123-456789012345",
                     "expectedControlType": "Button",
@@ -130,6 +130,28 @@
                 },
                 {
                     "name": "",
+                    "id": "6b7c8d9e-0f1a-2345-b678-aaaaaaaaaaaa",
+                    "path": "<Gamepad>/buttonSouth",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Accelerate",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "7c8d9e0f-1a2b-3456-c789-bbbbbbbbbbbb",
+                    "path": "<Gamepad>/buttonNorth",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Accelerate",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
                     "id": "3c4d5e6f-7a8b-9012-cdef-333333333333",
                     "path": "<Keyboard>/s",
                     "interactions": "",
@@ -142,7 +164,7 @@
                 {
                     "name": "",
                     "id": "4d5e6f7a-8b9c-0123-def1-444444444444",
-                    "path": "<Gamepad>/leftTrigger",
+                    "path": "<Gamepad>/buttonEast",
                     "interactions": "",
                     "processors": "",
                     "groups": "Gamepad",
@@ -208,7 +230,18 @@
                 {
                     "name": "",
                     "id": "0d1e2f3a-4b5c-6789-4567-aaaaaaaaaaaa",
-                    "path": "<Gamepad>/buttonSouth",
+                    "path": "<Gamepad>/rightShoulder",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Drift",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "2d3e4f5a-6b7c-8901-d234-cccccccccccc",
+                    "path": "<Gamepad>/rightTrigger",
                     "interactions": "",
                     "processors": "",
                     "groups": "Gamepad",
@@ -223,40 +256,51 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "Keyboard&Mouse",
-                    "action": "UseItemForward",
+                    "action": "UseItem",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
                 {
                     "name": "",
                     "id": "2f3a4b5c-6d7e-8901-6789-cccccccccccc",
-                    "path": "<Gamepad>/buttonEast",
+                    "path": "<Gamepad>/leftShoulder",
                     "interactions": "",
                     "processors": "",
                     "groups": "Gamepad",
-                    "action": "UseItemForward",
+                    "action": "UseItem",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
                 {
                     "name": "",
-                    "id": "3a4b5c6d-7e8f-9012-789a-dddddddddddd",
+                    "id": "3f4a5b6c-7d8e-9012-789a-dddddddddddd",
+                    "path": "<Gamepad>/leftTrigger",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "UseItem",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3f4a5b6c-7d8e-9012-789a-aaaaaaaaaaab",
+                    "path": "<Gamepad>/leftStick/down",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "AimBackward",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "4f5a6b7c-8d9e-0123-89ab-bbbbbbbbbbcc",
                     "path": "<Keyboard>/downArrow",
                     "interactions": "",
                     "processors": "",
                     "groups": "Keyboard&Mouse",
-                    "action": "UseItemBackward",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "4b5c6d7e-8f9a-0123-89ab-eeeeeeeeeeee",
-                    "path": "<Gamepad>/buttonWest",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "Gamepad",
-                    "action": "UseItemBackward",
+                    "action": "AimBackward",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -274,7 +318,7 @@
                 {
                     "name": "",
                     "id": "6d7e8f9a-0b1c-2345-abcd-000000000000",
-                    "path": "<Gamepad>/leftShoulder",
+                    "path": "<Gamepad>/buttonWest",
                     "interactions": "",
                     "processors": "",
                     "groups": "Gamepad",

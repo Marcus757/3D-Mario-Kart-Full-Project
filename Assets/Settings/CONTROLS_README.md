@@ -12,13 +12,12 @@ This project now uses Unity's New Input System with full keyboard and gamepad co
 
 | Action | Xbox Controller | PlayStation Controller |
 |--------|----------------|----------------------|
-| **Accelerate** | Right Trigger (RT) | R2 |
-| **Brake/Reverse** | Left Trigger (LT) | L2 |
+| **Accelerate** | A Button (RT/ZR supported) | Cross (×) / R2 |
+| **Brake/Reverse** | B Button | Circle (○) |
 | **Steer** | Left Stick (Horizontal) | Left Stick (Horizontal) |
-| **Drift/Trick** | A Button | Cross (✕) |
-| **Use Item (Forward)** | B Button | Circle (○) |
-| **Use Item (Backward)** | X Button | Square (□) |
-| **Look Back** | Left Bumper (LB) | L1 |
+| **Drift/Trick** | R / ZR | R1 / R2 |
+| **Use Item (Forward/Backward)** | L / ZL (Hold stick down for backward) | L1 / L2 |
+| **Look Back** | X Button | Square (□) |
 | **Camera: First Person** | D-Pad Up | D-Pad Up |
 | **Camera: Regular** | D-Pad Down | D-Pad Down |
 | **Glider Up** | Left Stick Up | Left Stick Up |
@@ -35,9 +34,8 @@ This project now uses Unity's New Input System with full keyboard and gamepad co
 | **Steer Left** | A |
 | **Steer Right** | D |
 | **Drift/Trick** | Space |
-| **Use Item (Forward)** | Right Shift |
-| **Use Item (Backward)** | Down Arrow |
-| **Look Back** | Left Shift |
+| **Use Item (Forward/Backward)** | Left Shift (hold Down Arrow to throw backward) |
+| **Look Back** | Right Shift |
 | **Camera: First Person** | 1 |
 | **Camera: Regular** | 2 |
 | **Glider Up** | W |
@@ -93,8 +91,8 @@ The Input System automatically switches between control schemes based on the las
 
 ### **Items**
 
-- **Right Shift** (or **B/Circle**) - Fire items forward (shells, bob-ombs)
-- **Down Arrow** (or **X/Square**) - Drop items behind (bananas) or use defensively
+- **Left Shift** (or **L/ZL**) - Fire items forward (shells, bob-ombs)
+- **Hold Down Arrow / Left Stick Down + Item Button** - Throw or drop items behind you
 
 ### **Starting Boost**
 
