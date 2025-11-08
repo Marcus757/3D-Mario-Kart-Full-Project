@@ -2496,7 +2496,7 @@ public class Player : MonoBehaviour
 
             if (!RACE_MANAGER.RACE_COMPLETED && isIdleOrSteering)
             {
-                if (Vector3.Distance(opponentLook.position, transform.position) < 20 && lookAtTime > 1)
+            if (opponentLook != null && Vector3.Distance(opponentLook.position, transform.position) < 20 && lookAtTime > 1)
                 {
                     headBone.rotation = Quaternion.SlerpUnclamped(headBone.rotation, Quaternion.LookRotation(opponentLook.position - transform.position), 5 * Time.deltaTime);
 
