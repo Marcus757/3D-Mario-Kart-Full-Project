@@ -207,7 +207,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &228945093695830362
 Transform:
   m_ObjectHideFlags: 0
@@ -409,10 +409,6 @@ MonoBehaviour:
   spark:
   - {fileID: 5068753651258080224}
   - {fileID: 5068753652348251390}
-  players:
-  - {fileID: 0}
-  - {fileID: 0}
-  moveSpeed: 1000
   whoThrewBomb: 
   throwForceMultiplier: 2.84
   autoCalibrate: 0
