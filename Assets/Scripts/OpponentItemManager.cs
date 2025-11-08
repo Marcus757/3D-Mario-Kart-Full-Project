@@ -187,9 +187,14 @@ public class OpponentItemManager : MonoBehaviour
         if(other.gameObject.tag == "Explosion" && !StarPowerUp)
         {
             hitByBanana();//effect as if a normal Banana hit the opponent
-            if (other.gameObject.name != "Explosion Blue Shell" && other.gameObject.GetComponent<Bobomb>().whoThrewBomb == "Player")
+
+            if (other.gameObject.name != "Explosion Blue Shell")
             {
-                GameObject.Find("Player").GetComponent<Player>().Driver.SetTrigger("HitItem");
+                var bombComponent = other.gameObject.GetComponent<Bobomb>();
+                if (bombComponent != null && bombComponent.whoThrewBomb == "Player")
+                {
+                    GameObject.Find("Player").GetComponent<Player>().Driver.SetTrigger("HitItem");
+                }
             }
 
         }
@@ -860,7 +865,6 @@ public class OpponentItemManager : MonoBehaviour
 
             GameObject clone = Instantiate(bobomb, bananaPos.position, bananaPos.rotation);
             clone.SetActive(true);
-            //clone.GetComponent<Rigidbody>().drag = 10;
             clone.GetComponent<Bobomb>().bomb_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 400);
             clone.GetComponent<AudioSource>().enabled = true;
 

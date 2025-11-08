@@ -1,5 +1,4 @@
 ﻿using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using System;
 
@@ -29,34 +28,77 @@ public class Bobomb : MonoBehaviour
     private bool exploded = false;
     private bool landed = false;
 
-    private Transform closest_Player;
-    public Transform[] players;
-
-    public float moveSpeed;
-
     bool countDownColor = false;
 
     [HideInInspector]
     public string whoThrewBomb;
 
-    float y = 0;
+    [Header("Throw Tuning")]
+    [SerializeField, Range(0.1f, 4f)]
+    private float throwForceMultiplier = 1f;
+    [SerializeField]
+    private bool autoCalibrate = false;
+    [SerializeField]
+    private bool matchArcAngle = false;
+    [SerializeField, Range(0f, 80f)]
+    private float desiredArcAngleDegrees = 30f;
 
-    // Start is called before the first frame update
+    private Vector3 throwStartPosition;
+    private bool trackingDistance;
+    private bool distanceRecorded;
+
+    private float baselineThrowDistance = -1f;
+
+    // Held (drag) behaviour
+    private bool isHeld;
+    private bool heldFuseActive;
+    private float heldFuseTimer;
+    private Action heldExplosionCallback;
+
+    public void ResetThrowCalibration()
+    {
+        baselineThrowDistance = -1f;
+        throwForceMultiplier = 1f;
+    }
+
+    [ContextMenu("Reset Throw Calibration")]
+    void ContextResetThrowCalibration()
+    {
+        ResetThrowCalibration();
+        Debug.Log("[Bobomb] Throw calibration reset.");
+    }
+
     void Start()
     {
         rb = GetComponent<Rigidbody>();
         renderers[1].material = regMat[1];
         renderers[0].material = regMat[0];
+
     }
 
-    // Update is called once per frame
+    void Update()
+    {
+        if (heldFuseActive)
+        {
+            heldFuseTimer -= Time.deltaTime;
+            if (heldFuseTimer <= 0f)
+            {
+                HandleHeldExplosion();
+            }
+        }
+    }
+
     void FixedUpdate()
     {
+        if (isHeld)
+        {
+            return;
+        }
+
         rb.AddRelativeForce(Vector3.down * 10000 * Time.deltaTime, ForceMode.Acceleration);
 
         if (landed)
         {
-            Move();
             groundNormalRotation();
             if (!countDownColor)
             {
@@ -70,56 +112,41 @@ public class Bobomb : MonoBehaviour
             GetComponent<AudioSource>().Stop();
         }
     }
-    public void Move()
-    {
-        if (!GetComponent<AudioSource>().isPlaying && !exploded && Vector3.Distance(GameObject.FindGameObjectWithTag("Player").transform.position, transform.position) < 50)
-        {
-            GetComponent<AudioSource>().Play();
-        }
-        GetComponent<Animator>().SetBool("Moving", true);
-        float shortDistance = 999999;
-        for(int i = 0; i < players.Length; i++)
-        {
-            float distance = Vector3.Distance(players[i].position, transform.position);
-            if(shortDistance > distance)
-            {
-                shortDistance = distance;
-                closest_Player = players[i];
-            }
-        }
-
-
-        //fix this
-        //angle calc
-        Vector3 myangle = closest_Player.position - transform.position;
-        Vector3 angle = Vector3.Cross(transform.forward, myangle);
-        float dir = Vector3.Dot(angle, transform.up);
-
-
-        float none = 0;
-
-        // maybe get dir, and make float y lerp to that dir value, and then rotate y axis (space.self) according to that y value or something
-
-        //float y = Mathf.SmoothDamp(transform.eulerAngles.y, transform.eulerAngles.y + dir, ref none, 2.5f * Time.deltaTime);
-        y = Mathf.SmoothDamp(y, dir, ref none, 2.5f * Time.deltaTime);
-
-
-        transform.Rotate(0, y / 2, 0, Space.Self);
-
-        rb.velocity = transform.TransformDirection(0, rb.velocity.y, moveSpeed * Time.deltaTime); //goes in direction thingy is facing in as its positive z value
-
-    }
 
     public void bomb_thrown(float extraForward)
     {
-        rb.AddForce(transform.up * throwForceUp * Time.deltaTime, ForceMode.Impulse);
-        rb.AddForce(-transform.forward * (throwForceForward + extraForward) * Time.deltaTime, ForceMode.Impulse);
-    }
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
 
+        float multiplier = throwForceMultiplier;
+        const float legacyScale = 1f / 60f;
+
+        float forwardImpulse = (throwForceForward + extraForward) * legacyScale * multiplier;
+        float verticalImpulse = throwForceUp * legacyScale * multiplier;
+
+        if (matchArcAngle)
+        {
+            float baseRatio = throwForceForward > Mathf.Epsilon ? throwForceUp / throwForceForward : 0f;
+            float desiredRatio = Mathf.Tan(Mathf.Deg2Rad * Mathf.Clamp(desiredArcAngleDegrees, 0f, 80f));
+            if (baseRatio > Mathf.Epsilon)
+            {
+                float arcMultiplier = desiredRatio / baseRatio;
+                verticalImpulse *= arcMultiplier;
+            }
+        }
+
+        rb.AddForce(transform.up * verticalImpulse, ForceMode.Impulse);
+        rb.AddForce(-transform.forward * forwardImpulse, ForceMode.Impulse);
+
+        throwStartPosition = transform.position;
+        trackingDistance = true;
+        distanceRecorded = false;
+    }
 
     void groundNormalRotation()
     {
-        //ground normal rotation
         Ray ground = new Ray(transform.position, transform.InverseTransformDirection(Vector3.down));
         RaycastHit hit;
         if (Physics.Raycast(ground, out hit, 5))
@@ -130,37 +157,41 @@ public class Bobomb : MonoBehaviour
 
     private IEnumerator OnCollisionEnter(Collision collision)
     {
-        if(collision.gameObject.tag == "Ground" || collision.gameObject.tag == "Dirt")
+        if (collision.gameObject.tag == "Ground" || collision.gameObject.tag == "Dirt")
         {
             groundNormalRotation();
+            RecordThrowDistance();
 
-            if(bounce_count < 4)
+            if (bounce_count < 4)
             {
-                rb.AddRelativeForce(transform.InverseTransformDirection(transform.up) * bounceForce/(bounce_count * 1.5f) * Time.deltaTime, ForceMode.Impulse);
+                const float legacyScale = 1f / 60f;
+                rb.AddRelativeForce(transform.InverseTransformDirection(transform.up) * bounceForce / (bounce_count * 1.5f) * legacyScale, ForceMode.Impulse);
                 yield return new WaitForSeconds(0.01f);
                 bounce_count++;
             }
-            if(bounce_count == 4)
+            if (bounce_count == 4)
             {
                 StartCoroutine(Explode());
                 landed = true;
             }
         }
 
-        if(collision.gameObject.tag == "Player" || collision.gameObject.tag == "Opponent")
+        if (collision.gameObject.tag == "Player" || collision.gameObject.tag == "Opponent")
         {
+            RecordThrowDistance();
             StartCoroutine(explodeImmediately());
         }
     }
-
 
     IEnumerator Explode()
     {
         yield return new WaitForSeconds(4);
         if (!exploded)
         {
+            heldFuseActive = false;
+            RecordThrowDistance();
             GameObject clone = Instantiate(explosion, explosionPos.position, explosion.transform.rotation);
-            
+
             Instantiate(smoke, smokePos.position, smokePos.rotation);
             for (int i = 0; i < renderers.Length; i++)
             {
@@ -171,7 +202,7 @@ public class Bobomb : MonoBehaviour
                 spark[i].SetActive(false);
             }
             exploded = true;
-            if(Vector3.Distance(GameObject.FindGameObjectWithTag("Player").transform.position, transform.position) < 250)
+            if (Vector3.Distance(GameObject.FindGameObjectWithTag("Player").transform.position, transform.position) < 250)
             {
                 clone.GetComponent<AudioSource>().Play();
                 Camera.main.GetComponent<Animator>().SetTrigger("Shake2");
@@ -180,15 +211,14 @@ public class Bobomb : MonoBehaviour
         }
         yield return new WaitForSeconds(2);
         gameObject.SetActive(false);
-        
-
-
     }
 
     IEnumerator explodeImmediately()
     {
         if (!exploded)
         {
+            heldFuseActive = false;
+            RecordThrowDistance();
             GameObject clone = Instantiate(explosion, explosionPos.position, explosion.transform.rotation);
             Instantiate(smoke, smokePos.position, smokePos.rotation);
             for (int i = 0; i < renderers.Length; i++)
@@ -207,14 +237,49 @@ public class Bobomb : MonoBehaviour
                 {
                     Camera.main.GetComponent<Animator>().SetTrigger("Shake2");
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
-
                 }
             }
         }
         yield return new WaitForSeconds(2);
         gameObject.SetActive(false);
+    }
+
+    void RecordThrowDistance()
+    {
+        if (!trackingDistance || distanceRecorded)
+        {
+            return;
+        }
+
+        Vector3 start = throwStartPosition;
+        Vector3 end = transform.position;
+        start.y = 0f;
+        end.y = 0f;
+        float distance = Vector3.Distance(start, end);
+
+        trackingDistance = false;
+        distanceRecorded = true;
+
+        if (distance <= Mathf.Epsilon)
+        {
+            return;
+        }
+
+        if (baselineThrowDistance < 0f)
+        {
+            baselineThrowDistance = distance;
+            throwForceMultiplier = 1f;
+            Debug.Log($"[Bobomb] Baseline throw distance recorded: {distance:F2} units.");
+        }
+        else if (autoCalibrate)
+        {
+            float desired = baselineThrowDistance;
+            float newMultiplier = desired / distance;
+            throwForceMultiplier = Mathf.Clamp(newMultiplier, 0.1f, 4f);
+            Debug.Log($"[Bobomb] Throw distance {distance:F2} units. Adjusting multiplier to {throwForceMultiplier:F2} to match baseline {desired:F2}.");
+        }
     }
 
     IEnumerator countdownColor()
@@ -226,5 +291,77 @@ public class Bobomb : MonoBehaviour
             renderers[1].material = regMat[1];
             yield return new WaitForSeconds(0.2f);
         }
+    }
+
+    private void HandleHeldExplosion()
+    {
+        if (exploded)
+        {
+            heldFuseActive = false;
+            return;
+        }
+
+        heldFuseActive = false;
+        isHeld = false;
+        transform.SetParent(null, true);
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+        }
+
+        heldExplosionCallback?.Invoke();
+        heldExplosionCallback = null;
+
+        StartCoroutine(explodeImmediately());
+    }
+
+    public void BeginHeld(float fuseDuration, Action onHeldExplosion)
+    {
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
+        isHeld = true;
+        heldFuseActive = true;
+        heldFuseTimer = fuseDuration;
+        heldExplosionCallback = onHeldExplosion;
+
+        rb.isKinematic = true;
+        rb.velocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
+        landed = false;
+        exploded = false;
+        bounce_count = 1;
+    }
+
+    public void ReleaseHeldAsMine()
+    {
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
+        isHeld = false;
+        rb.isKinematic = false;
+        transform.SetParent(null, true);
+        bounce_count = 4;
+        heldExplosionCallback = null;
+    }
+
+    public void CancelHeld()
+    {
+        isHeld = false;
+        heldFuseActive = false;
+        heldExplosionCallback = null;
+    }
+
+    public void ApplyDebugThrowSettings(float multiplier, bool matchArc, float desiredAngleDegrees, bool autoCal)
+    {
+        throwForceMultiplier = Mathf.Clamp(multiplier, 0.1f, 4f);
+        matchArcAngle = matchArc;
+        desiredArcAngleDegrees = Mathf.Clamp(desiredAngleDegrees, 0f, 80f);
+        autoCalibrate = autoCal;
+        baselineThrowDistance = -1f;
     }
 }
