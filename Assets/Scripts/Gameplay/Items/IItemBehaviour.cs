@@ -15,7 +15,7 @@ public class ItemContext
 public interface IItemBehaviour
 {
     bool SupportsTrailing { get; }
-    void OnUse(ItemContext context, bool aimBackwardHeld, bool useHeld);
+    void OnUse(ItemContext context, bool aimBackwardHeld, bool useHeld, bool usePressedThisFrame);
     void OnRelease(ItemContext context, bool aimBackwardHeld);
 }
 

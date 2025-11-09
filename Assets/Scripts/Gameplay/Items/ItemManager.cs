@@ -30,21 +30,9 @@ public class ItemManager : MonoBehaviour
     }
 
     [System.Serializable]
-    private class DebugBobombSettings
-    {
-        public bool overrideThrowSettings;
-        [Range(0.1f, 4f)] public float throwForceMultiplier = 1f;
-        public bool autoCalibrate;
-        public bool matchArcAngle;
-        [Range(0f, 80f)] public float desiredArcAngleDegrees = 30f;
-    }
-
-    [System.Serializable]
     private class DebugItemSettings
     {
         public DebugItemSelection selectedItem = DebugItemSelection.None;
-        [Header("Bobomb Throw Overrides")]
-        public DebugBobombSettings bobomb = new DebugBobombSettings();
     }
 
     [Header("DEBUG SETTINGS")]
@@ -58,6 +46,14 @@ public class ItemManager : MonoBehaviour
     private Coroutine activeRoulette;
     private Coroutine debugAutoRefillRoutine;
     private bool suppressDebugAutoRefill;
+    private static readonly HashSet<string> tripleItemNames = new HashSet<string>
+    {
+        "TripleGreenShells",
+        "TripleRedShells",
+        "TripleBananas",
+        "TripleMushroom"
+    };
+
     private ItemHudPresenter hud;
     private ItemContext itemContext;
     private Dictionary<string, IItemBehaviour> itemBehaviours;
@@ -175,7 +171,19 @@ public class ItemManager : MonoBehaviour
         itemBehaviours = new Dictionary<string, IItemBehaviour>
         {
             { "GreenShell", new ShellItemBehaviour(0, false) },
-            { "RedShell", new ShellItemBehaviour(1, true) }
+            { "RedShell", new ShellItemBehaviour(1, true) },
+            { "Banana", new BananaItemBehaviour(2) },
+            { "TripleGreenShells", new TripleShellBehaviour(false) },
+            { "TripleRedShells", new TripleShellBehaviour(true) },
+            { "TripleBananas", new TripleBananaBehaviour() },
+            { "Mushroom", new MushroomItemBehaviour() },
+            { "TripleMushroom", new TripleMushroomBehaviour() },
+            { "GoldenMushroom", new GoldenMushroomBehaviour() },
+            { "Coin", new CoinItemBehaviour() },
+            { "ItemStar", new StarItemBehaviour() },
+            { "Bullet", new BulletItemBehaviour() },
+            { "BlueShell", new BlueShellItemBehaviour() },
+            { "Bobomb-Hold", new BobombItemBehaviour() }
         };
         
         LogBobombDebug("Start called, player and sound components cached");
@@ -311,264 +319,10 @@ public class ItemManager : MonoBehaviour
 
             if (useItemPressedThisFrame && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_) //if item array order changes, change the indexes of utility methods and these if statements
             {
-                if (itemBehaviours != null && itemBehaviours.TryGetValue(current_Item, out var behaviour))
-                {
-                    behaviour.OnUse(itemContext, input.AimBackwardHeld, useItemHeldNow);
-                }
-                else if (current_Item.Equals("TripleGreenShells") && tripleItemCount > 0)
-                {
-
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-                        item_gameobjects[2].SetActive(true);
-                        StartCoroutine(spawnShell(shellSpawnPos, 1));
-                        tripleItemCount--;
-                    }
-                    else // Backward (holding brake)
-                    {
-                        player_script.Driver.SetTrigger("ThrowBackward");
-                        item_gameobjects[2].SetActive(true);
-                        StartCoroutine(spawnShell(backshellPos, -1));
-                        tripleItemCount--;
-                        if (!StarPowerUp)
-                            player_script.current_face_material = player_script.faces[1]; //look left
-                    }
-
-                    item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false); //turn off one of the 3 shells. Index is valid as we subtracted 1 before
-
-                    if (tripleItemCount < 1) //if you used up all of triple shells, reset everything
-                    {
-                        current_Item = "";
-                        item_gameobjects[item_index].SetActive(false);
-                        item_gameobjects[item_index].transform.GetChild(0).gameObject.SetActive(true);
-                        item_gameobjects[item_index].transform.GetChild(1).gameObject.SetActive(true);
-                        item_gameobjects[item_index].transform.GetChild(2).gameObject.SetActive(true);
-                        used_Item_Done();
-                    }
-                } //THIS IS FOR TRIPLE GREEEN SHELLS
-                else if (current_Item.Equals("TripleRedShells") && tripleItemCount > 0)
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-                        item_gameobjects[4].SetActive(true);
-                        StartCoroutine(spawnRedShell(shellSpawnPos, 1));
-                        tripleItemCount--;
-                    }
-                    else // Backward (holding brake)
-                    {
-                        player_script.Driver.SetTrigger("ThrowBackward");
-                        item_gameobjects[4].SetActive(true);
-                        StartCoroutine(spawnRedShell(backshellPos, -1));
-                        tripleItemCount--;
-                        if (!StarPowerUp)
-                            player_script.current_face_material = player_script.faces[1]; //look left
-                    }
-                    item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false); //turn off one of the 3 shells. Index is valid as we subtracted 1 before
-
-                    if (tripleItemCount < 1) //if you used up all of triple shells, reset everything
-                    {
-                        current_Item = "";
-                        item_gameobjects[item_index].SetActive(false);
-                        item_gameobjects[item_index].transform.GetChild(0).gameObject.SetActive(true);
-                        item_gameobjects[item_index].transform.GetChild(1).gameObject.SetActive(true);
-                        item_gameobjects[item_index].transform.GetChild(2).gameObject.SetActive(true);
-                        used_Item_Done();
-                    }
-                }
-                else if (current_Item.Equals("Mushroom"))
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        player_script.Boost_time = 2f;
-                        for (int i = 0; i < player_script.BoostBurstPS.transform.childCount; i++) //boost burst
-                        {
-                            player_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left and right included
-                        }
-                        if (playersounds.Check_if_playing())
-                        {
-                            playersounds.Mario_Boost_Sounds[playersounds.sound_count].Play();
-                            playersounds.sound_count++;
-                        }
-                        item_gameobjects[item_index].SetActive(false);
-                        current_Item = ""; //1 use only
-                        used_Item_Done();
-                    }
-                }
-                else if (current_Item.Equals("TripleMushroom") && tripleItemCount > 0)
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        player_script.Boost_time = 2.5f;
-                        tripleItemCount--;
-                        for (int i = 0; i < player_script.BoostBurstPS.transform.childCount; i++)
-                        {
-                            player_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left and right included
-                        }
-                        item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
-                        if (playersounds.Check_if_playing())
-                        {
-                            playersounds.Mario_Boost_Sounds[playersounds.sound_count].Play();
-                            playersounds.sound_count++;
-                        }
-                        if (tripleItemCount < 1) //if you used up all of triple mushrooms, reset everything
-                        {
-                            current_Item = "";
-                            item_gameobjects[item_index].SetActive(false);
-                            item_gameobjects[item_index].transform.GetChild(0).gameObject.SetActive(true);
-                            item_gameobjects[item_index].transform.GetChild(1).gameObject.SetActive(true);
-                            item_gameobjects[item_index].transform.GetChild(2).gameObject.SetActive(true);
-                            used_Item_Done();
-                        }
-                    }
-                }
-                else if (current_Item.Equals("Banana"))
-                {
-                    if (!input.AimBackwardHeld) // Hold to trail when stick neutral/up
-                    {
-                        StartTrailingItemIfNeeded(2);
-                    }
-                }
-                else if (current_Item.Equals("TripleBananas"))
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-                        StartCoroutine(spawnBanana(1));
-                    }
-                    else // Backward (holding brake)
-                    {
-                        StartCoroutine(spawnBanana(-1));
-                        
-                        player_script.Driver.SetTrigger("ThrowBackward");
-                        if (!StarPowerUp)
-                            player_script.current_face_material = player_script.faces[1]; //look left
-                    }
-                    tripleItemCount--;
-                    item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false); //turn off one of the 3 shells. Index is valid as we subtracted 1 before
-
-
-                    if (tripleItemCount < 1) //if you used up all of triple shells, reset everything
-                    {
-                        current_Item = "";
-                        item_gameobjects[item_index].SetActive(false);
-                        item_gameobjects[item_index].transform.GetChild(0).gameObject.SetActive(true);
-                        item_gameobjects[item_index].transform.GetChild(1).gameObject.SetActive(true);
-                        item_gameobjects[item_index].transform.GetChild(2).gameObject.SetActive(true);
-                        used_Item_Done();
-                    }
-                }
-                else if (current_Item.Equals("GoldenMushroom"))
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        startMushroomTimer = true;
-                        player_script.Boost_time = 2f;
-                        for (int i = 0; i < player_script.BoostBurstPS.transform.childCount; i++) //boost burst
-                        {
-                            player_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left and right included
-                        }
-                        if (playersounds.Check_if_playing())
-                        {
-                            playersounds.Mario_Boost_Sounds[playersounds.sound_count].Play();
-                            playersounds.sound_count++;
-                        }
-                        if (GoldenMushroomTimer < 0)
-                        {
-                            item_gameobjects[item_index].SetActive(false);
-                            current_Item = ""; 
-                            used_Item_Done();
-                                startMushroomTimer = false;
-                        }
-                    }
-
-                    
-                }
-                else if (current_Item.Equals("Coin"))
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        StartCoroutine(UseCoin());
-                            current_Item = ""; //1 use only
-                            used_Item_Done();
-                        }
-
-                    
-                }
-                else if (current_Item.Equals("ItemStar"))
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        current_Item = ""; //1 use only
-                        used_Item_Done();
-                        StartCoroutine(UseStar());
-
-                    }
-
-                }
-                else if (current_Item.Equals("Bullet"))
-                {
-                    if (!input.AimBackwardHeld && !player_script.JUMP_PANEL) // Bullet only works forward
-                    {
-                            if (!player_script.antiGravity)
-                            {
-                                current_Item = "";
-                                StartCoroutine(UseBullet());
-                            }
-                            else
-                            {
-                                if (canUseBulletAntigravity)
-                                {
-                                    current_Item = "";
-                                    StartCoroutine(UseBullet());
-                                }
-                            }
-                       
-                    }
-                }
-                else if (current_Item.Equals("Bobomb-Hold"))
-                {
-                    if (!input.AimBackwardHeld && useItemPressedThisFrame && !bobombTrailingActive) // Forward quick tap
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-                        StartCoroutine(useBobomb(1));
-                        used_Item_Done();
-                        current_Item = "";
-                    }
-                    else
-                    {
-                        if (!bobombTrailingActive && input.AimBackwardHeld && useItemHeldNow)
-                        {
-                            LogBobombDebug($"Attempting StartBobombTrailing: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeldNow={useItemHeldNow}, UseItemTriggered={useItemPressedThisFrame}, useItemHeldLastFrame={useItemHeldLastFrame}");
-                            StartBobombTrailing();
-                        }
-
-                        if (bobombTrailingActive && useItemReleasedThisFrame)
-                        {
-                            LogBobombDebug($"Detected release input while trailing: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeldNow={useItemHeldNow}, useItemReleasedThisFrame={useItemReleasedThisFrame}");
-                            ReleaseBobombTrailing();
-                        }
-                    }
-                }
-                else if (current_Item.Equals("BlueShell"))
-                {
-                    if (!input.AimBackwardHeld) // Forward
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-                        StartCoroutine(useBlueShell());
-                        used_Item_Done();
-                        current_Item = "";
-                    }
-                }
-                else
-                {
-                    used_Item_Done();
-                    for(int i = 0; i < item_gameobjects.Length; i++)
-                    {
-                        item_gameobjects[i].SetActive(false);
-                    }
-                } //for now, since we only have green shells working, everything else just turns off when you use the item
+            if (itemBehaviours != null && itemBehaviours.TryGetValue(current_Item, out var behaviour))
+            {
+                behaviour.OnUse(itemContext, input.AimBackwardHeld, useItemHeldNow, useItemPressedThisFrame);
+            }
             }
 
             if (useItemReleasedThisFrame && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_)
@@ -576,10 +330,6 @@ public class ItemManager : MonoBehaviour
             if (itemBehaviours != null && itemBehaviours.TryGetValue(current_Item, out var behaviour))
             {
                 behaviour.OnRelease(itemContext, input.AimBackwardHeld);
-            }
-            else if (current_Item.Equals("Banana"))
-            {
-                HandleBananaRelease(input.AimBackwardHeld);
             }
             }
         }
@@ -704,7 +454,7 @@ public class ItemManager : MonoBehaviour
         used_Item_Done();
     }
 
-    private void HandleBananaRelease(bool aimBackwardHeld)
+    internal void HandleBananaRelease(bool aimBackwardHeld)
     {
         if (!current_Item.Equals("Banana"))
         {
@@ -761,9 +511,277 @@ public class ItemManager : MonoBehaviour
         }
     }
 
+    private void ClearCurrentItemVisuals()
+    {
+        CleanupTrailingItem();
+
+        if (item_gameobjects == null || item_gameobjects.Length == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < item_gameobjects.Length; i++)
+        {
+            GameObject obj = item_gameobjects[i];
+            if (obj == null)
+            {
+                continue;
+            }
+
+            if (IsTripleItem(obj.name))
+            {
+                ResetTripleChildren(obj);
+            }
+
+            obj.SetActive(false);
+        }
+
+        current_Item = "";
+        tripleItemCount = 0;
+        item_index = -1;
+    }
+
+    private static void ResetTripleChildren(GameObject tripleObject)
+    {
+        if (tripleObject == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < tripleObject.transform.childCount; i++)
+        {
+            tripleObject.transform.GetChild(i).gameObject.SetActive(true);
+        }
+    }
+
+    private static bool IsTripleItem(string itemName)
+    {
+        return !string.IsNullOrEmpty(itemName) && tripleItemNames.Contains(itemName);
+    }
+
+    internal void HandleTripleShellUse(bool isRedShell, bool aimBackwardHeld)
+    {
+        string expectedName = isRedShell ? "TripleRedShells" : "TripleGreenShells";
+        if (!current_Item.Equals(expectedName) || tripleItemCount <= 0)
+        {
+            return;
+        }
+
+        player_script.Driver.SetTrigger(aimBackwardHeld ? "ThrowBackward" : "ThrowForward");
+        int shellIndex = isRedShell ? 4 : 2;
+        item_gameobjects[shellIndex].SetActive(true);
+
+        if (aimBackwardHeld)
+        {
+            if (isRedShell)
+            {
+                StartCoroutine(spawnRedShell(backshellPos, -1));
+            }
+            else
+            {
+                StartCoroutine(spawnShell(backshellPos, -1));
+            }
+            if (!StarPowerUp)
+            {
+                player_script.current_face_material = player_script.faces[1];
+            }
+        }
+        else
+        {
+            if (isRedShell)
+            {
+                StartCoroutine(spawnRedShell(shellSpawnPos, 1));
+            }
+            else
+            {
+                StartCoroutine(spawnShell(shellSpawnPos, 1));
+            }
+        }
+
+        tripleItemCount--;
+        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        {
+            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+        }
+
+        if (tripleItemCount < 1)
+        {
+            ResetTripleItemHolder();
+        }
+    }
+
+    internal void HandleTripleBananaUse(bool aimBackwardHeld)
+    {
+        if (!current_Item.Equals("TripleBananas") || tripleItemCount <= 0)
+        {
+            return;
+        }
+
+        if (aimBackwardHeld)
+        {
+            StartCoroutine(spawnBanana(-1));
+            player_script.Driver.SetTrigger("ThrowBackward");
+            if (!StarPowerUp)
+            {
+                player_script.current_face_material = player_script.faces[1];
+            }
+        }
+        else
+        {
+            player_script.Driver.SetTrigger("ThrowForward");
+            StartCoroutine(spawnBanana(1));
+        }
+
+        tripleItemCount--;
+        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        {
+            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+        }
+
+        if (tripleItemCount < 1)
+        {
+            ResetTripleItemHolder();
+        }
+    }
+
+    private void ResetTripleItemHolder()
+    {
+        current_Item = "";
+        if (item_gameobjects != null && item_index >= 0 && item_index < item_gameobjects.Length)
+        {
+            GameObject tripleObject = item_gameobjects[item_index];
+            if (tripleObject != null)
+            {
+                tripleObject.SetActive(false);
+                ResetTripleChildren(tripleObject);
+            }
+        }
+        tripleItemCount = 0;
+        used_Item_Done();
+    }
+
+    internal void HandleMushroomUse()
+    {
+        if (!current_Item.Equals("Mushroom"))
+        {
+            return;
+        }
+
+        player_script.Boost_time = 2f;
+        PlayBoostEffects();
+        item_gameobjects[item_index].SetActive(false);
+        current_Item = "";
+        used_Item_Done();
+    }
+
+    internal void HandleTripleMushroomUse(bool aimBackwardHeld)
+    {
+        if (!current_Item.Equals("TripleMushroom") || tripleItemCount <= 0 || aimBackwardHeld)
+        {
+            return;
+        }
+
+        player_script.Boost_time = 2.5f;
+        tripleItemCount--;
+        PlayBoostEffects();
+        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        {
+            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+        }
+        if (tripleItemCount < 1)
+        {
+            ResetTripleItemHolder();
+        }
+    }
+
+    private void PlayBoostEffects()
+    {
+        for (int i = 0; i < player_script.BoostBurstPS.transform.childCount; i++)
+        {
+            player_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play();
+        }
+        if (playersounds.Check_if_playing())
+        {
+            playersounds.Mario_Boost_Sounds[playersounds.sound_count].Play();
+            playersounds.sound_count++;
+        }
+    }
+
+    internal void HandleGoldenMushroomUse(bool aimBackwardHeld)
+    {
+        if (!current_Item.Equals("GoldenMushroom") || aimBackwardHeld)
+        {
+            return;
+        }
+
+        startMushroomTimer = true;
+        player_script.Boost_time = 2f;
+        PlayBoostEffects();
+        if (GoldenMushroomTimer < 0)
+        {
+            item_gameobjects[item_index].SetActive(false);
+            current_Item = "";
+            used_Item_Done();
+            startMushroomTimer = false;
+        }
+    }
+
+    internal void HandleCoinUse()
+    {
+        if (!current_Item.Equals("Coin"))
+        {
+            return;
+        }
+
+        StartCoroutine(UseCoin());
+        current_Item = "";
+        used_Item_Done();
+    }
+
+    internal void HandleStarUse()
+    {
+        if (!current_Item.Equals("ItemStar"))
+        {
+            return;
+        }
+
+        current_Item = "";
+        used_Item_Done();
+        StartCoroutine(UseStar());
+    }
+
+    internal void HandleBulletUse(bool aimBackwardHeld)
+    {
+        if (!current_Item.Equals("Bullet") || aimBackwardHeld || player_script.JUMP_PANEL)
+        {
+            return;
+        }
+
+        if (!player_script.antiGravity || canUseBulletAntigravity)
+        {
+            current_Item = "";
+            StartCoroutine(UseBullet());
+        }
+    }
+
+    internal void HandleBlueShellUse()
+    {
+        if (!current_Item.Equals("BlueShell"))
+        {
+            return;
+        }
+
+        player_script.Driver.SetTrigger("ThrowForward");
+        StartCoroutine(useBlueShell());
+        used_Item_Done();
+        current_Item = "";
+    }
+
 
     IEnumerator Item_Select()
     {
+        ClearCurrentItemVisuals();
+
         int resolvedIndex = GetComponent<ItemDistributionManager>().getItemNumber();
         if (debugForcedItemIndex >= 0)
         {
@@ -966,7 +984,6 @@ public class ItemManager : MonoBehaviour
             GameObject clone = Instantiate(bobomb, BananaSpawnPos.position, BananaSpawnPos.rotation);
             clone.SetActive(true);
             var cloneBomb = clone.GetComponent<Bobomb>();
-            ApplyBobombDebugSettings(cloneBomb);
             if (cloneBomb != null)
             {
                 cloneBomb.bomb_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 400);
@@ -995,7 +1012,6 @@ public class ItemManager : MonoBehaviour
             GameObject clone = Instantiate(bobomb, backshellPos.position, BananaSpawnPos.rotation);
             clone.SetActive(true);
             var cloneBomb = clone.GetComponent<Bobomb>();
-            ApplyBobombDebugSettings(cloneBomb);
             if (cloneBomb != null)
             {
                 cloneBomb.bounce_count = 4;
@@ -1480,23 +1496,6 @@ public class ItemManager : MonoBehaviour
         return null;
     }
 
-    private void ApplyBobombDebugSettings(Bobomb bombScript)
-    {
-        if (bombScript == null)
-        {
-            return;
-        }
-
-        if (debugSettings.bobomb.overrideThrowSettings)
-        {
-            bombScript.ApplyDebugThrowSettings(
-                debugSettings.bobomb.throwForceMultiplier,
-                debugSettings.bobomb.matchArcAngle,
-                debugSettings.bobomb.desiredArcAngleDegrees,
-                debugSettings.bobomb.autoCalibrate);
-        }
-    }
-
     private void TriggerDebugItem(DebugItemSelection selection)
     {
         if (selection == DebugItemSelection.None || player_script == null)
@@ -1593,6 +1592,41 @@ public class ItemManager : MonoBehaviour
         }
     }
 
+    public bool IsBobombTrailingActive => bobombTrailingActive;
+
+    public void HandleBobombForwardUse()
+    {
+        if (!current_Item.Equals("Bobomb-Hold"))
+        {
+            return;
+        }
+
+        player_script.Driver.SetTrigger("ThrowForward");
+        StartCoroutine(useBobomb(1));
+        used_Item_Done();
+        current_Item = "";
+    }
+
+    public void HandleBobombStartTrailing()
+    {
+        if (!current_Item.Equals("Bobomb-Hold"))
+        {
+            return;
+        }
+
+        StartBobombTrailing();
+    }
+
+    public void HandleBobombRelease(bool aimBackwardHeld)
+    {
+        if (!current_Item.Equals("Bobomb-Hold"))
+        {
+            return;
+        }
+
+        ReleaseBobombTrailing();
+    }
+
     private void StartBobombTrailing()
     {
         LogBobombDebug($"StartBobombTrailing entered: bobombTrailingActive(before)={bobombTrailingActive}, currentItem={current_Item}, backshellPos={backshellPos.position}");
@@ -1607,7 +1641,6 @@ public class ItemManager : MonoBehaviour
         if (bombScript != null)
         {
             bombScript.whoThrewBomb = gameObject.name;
-            ApplyBobombDebugSettings(bombScript);
             bombScript.BeginHeld(bobombHeldFuseDuration, OnBobombHeldExplosion);
             LogBobombDebug($"BeginHeld invoked on Bobomb with fuse={bobombHeldFuseDuration}s");
         }

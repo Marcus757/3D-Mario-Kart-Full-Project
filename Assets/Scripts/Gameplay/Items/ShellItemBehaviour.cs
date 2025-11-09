@@ -11,7 +11,7 @@ public class ShellItemBehaviour : IItemBehaviour
 
     public bool SupportsTrailing => true;
 
-    public void OnUse(ItemContext context, bool aimBackwardHeld, bool useHeld)
+    public void OnUse(ItemContext context, bool aimBackwardHeld, bool useHeld, bool usePressedThisFrame)
     {
         if (!aimBackwardHeld)
         {
