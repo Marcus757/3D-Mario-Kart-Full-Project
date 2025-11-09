@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
@@ -58,6 +59,8 @@ public class ItemManager : MonoBehaviour
     private Coroutine debugAutoRefillRoutine;
     private bool suppressDebugAutoRefill;
     private ItemHudPresenter hud;
+    private ItemContext itemContext;
+    private Dictionary<string, IItemBehaviour> itemBehaviours;
     
     private void Awake()
     {
@@ -168,6 +171,12 @@ public class ItemManager : MonoBehaviour
         player_script = GetComponent<Player>();
         playersounds = GetComponent<PlayerSounds>();
         hud = new ItemHudPresenter(ItemUI, your_item, PlaySelectsound, Selected);
+        itemContext = new ItemContext(this, player_script, playersounds);
+        itemBehaviours = new Dictionary<string, IItemBehaviour>
+        {
+            { "GreenShell", new ShellItemBehaviour(0, false) },
+            { "RedShell", new ShellItemBehaviour(1, true) }
+        };
         
         LogBobombDebug("Start called, player and sound components cached");
         if (debugSettings.selectedItem != DebugItemSelection.None)
@@ -302,12 +311,9 @@ public class ItemManager : MonoBehaviour
 
             if (useItemPressedThisFrame && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_) //if item array order changes, change the indexes of utility methods and these if statements
             {
-                if (current_Item.Equals("GreenShell")) //.Equals, not ==
+                if (itemBehaviours != null && itemBehaviours.TryGetValue(current_Item, out var behaviour))
                 {
-                    if (!input.AimBackwardHeld) // Hold to trail when stick neutral/up
-                    {
-                        StartTrailingItemIfNeeded(0);
-                    }
+                    behaviour.OnUse(itemContext, input.AimBackwardHeld, useItemHeldNow);
                 }
                 else if (current_Item.Equals("TripleGreenShells") && tripleItemCount > 0)
                 {
@@ -341,13 +347,6 @@ public class ItemManager : MonoBehaviour
                         used_Item_Done();
                     }
                 } //THIS IS FOR TRIPLE GREEEN SHELLS
-                else if (current_Item.Equals("RedShell"))
-                {
-                    if (!input.AimBackwardHeld) // Hold to trail when stick neutral/up
-                    {
-                        StartTrailingItemIfNeeded(1);
-                    }
-                }
                 else if (current_Item.Equals("TripleRedShells") && tripleItemCount > 0)
                 {
                     if (!input.AimBackwardHeld) // Forward
@@ -574,25 +573,21 @@ public class ItemManager : MonoBehaviour
 
             if (useItemReleasedThisFrame && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_)
             {
-                if (current_Item.Equals("GreenShell"))
-                {
-                    HandleGreenShellRelease(input.AimBackwardHeld);
-                }
-                else if (current_Item.Equals("RedShell"))
-                {
-                    HandleRedShellRelease(input.AimBackwardHeld);
-                }
-                else if (current_Item.Equals("Banana"))
-                {
-                    HandleBananaRelease(input.AimBackwardHeld);
-                }
+            if (itemBehaviours != null && itemBehaviours.TryGetValue(current_Item, out var behaviour))
+            {
+                behaviour.OnRelease(itemContext, input.AimBackwardHeld);
+            }
+            else if (current_Item.Equals("Banana"))
+            {
+                HandleBananaRelease(input.AimBackwardHeld);
+            }
             }
         }
 
         useItemHeldLastFrame = useItemHeldNow;
     }
 
-    private void StartTrailingItemIfNeeded(int trailingIndex)
+    internal void StartTrailingItemIfNeeded(int trailingIndex)
     {
         if (trailingItems == null || trailingIndex < 0 || trailingIndex >= trailingItems.Length)
         {
@@ -637,7 +632,7 @@ public class ItemManager : MonoBehaviour
         }
     }
 
-    private void HandleGreenShellRelease(bool aimBackwardHeld)
+    internal void HandleGreenShellRelease(bool aimBackwardHeld)
     {
         if (!current_Item.Equals("GreenShell"))
         {
@@ -673,7 +668,7 @@ public class ItemManager : MonoBehaviour
         used_Item_Done();
     }
 
-    private void HandleRedShellRelease(bool aimBackwardHeld)
+    internal void HandleRedShellRelease(bool aimBackwardHeld)
     {
         if (!current_Item.Equals("RedShell"))
         {
