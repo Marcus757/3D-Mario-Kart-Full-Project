@@ -7,13 +7,9 @@ using UnityEngine.InputSystem;
 
 public class ItemManager : MonoBehaviour
 {
-    private GameControls controls;
-    
-    private bool UseItemTriggered => controls.Gameplay.UseItem.triggered;
-    private bool UseItemHeld => controls.Gameplay.UseItem.IsPressed();
-    private bool AimBackwardHeld => controls.Gameplay.AimBackward.IsPressed();
-    private bool UseItemReleased => controls.Gameplay.UseItem.WasReleasedThisFrame();
-    private bool useItemCancelThisFrame;
+    private ItemInputHandler input;
+    private bool usePressedThisFrame;
+    private bool useReleasedThisFrame;
     private bool useItemHeldLastFrame;
     private bool bobombTrailingActive;
     private GameObject activeTrailingBobomb;
@@ -64,32 +60,35 @@ public class ItemManager : MonoBehaviour
     
     private void Awake()
     {
-        controls = new GameControls();
+        input = new ItemInputHandler(new GameControls());
         LogBobombDebug("Awake initialized GameControls instance");
     }
     
     private void OnEnable()
     {
-        controls.Gameplay.Enable();
-        controls.Gameplay.UseItem.canceled += OnUseItemCanceled;
+        input.UsePressed += HandleUsePressed;
+        input.UseReleased += HandleUseReleased;
+        input.Enable();
         LogBobombDebug("Item controls enabled");
     }
     
     private void OnDisable()
     {
-        controls.Gameplay.UseItem.canceled -= OnUseItemCanceled;
+        input.UsePressed -= HandleUsePressed;
+        input.UseReleased -= HandleUseReleased;
+        input.Disable();
         LogBobombDebug("Item controls disabled");
-        controls.Gameplay.Disable();
     }
 
-    private void OnUseItemCanceled(InputAction.CallbackContext context)
+    private void HandleUsePressed() => usePressedThisFrame = true;
+
+    private void HandleUseReleased()
     {
-        useItemCancelThisFrame = true;
-        LogBobombDebug($"UseItem canceled event received. phase={context.phase}");
+        useReleasedThisFrame = true;
 
         if (bobombTrailingActive && current_Item.Equals("Bobomb-Hold"))
         {
-            LogBobombDebug("UseItem canceled while trailing; releasing immediately from canceled callback");
+            LogBobombDebug("UseItem canceled while trailing; releasing immediately from release callback");
             ReleaseBobombTrailing();
         }
     }
@@ -259,10 +258,13 @@ public class ItemManager : MonoBehaviour
 
         wayPointSystemCurrent();
 
-        bool useItemPressedThisFrame = UseItemTriggered;
-        bool useItemHeldNow = UseItemHeld;
-        bool useItemReleasedThisFrame = useItemCancelThisFrame || UseItemReleased || (useItemHeldLastFrame && !useItemHeldNow);
-        useItemCancelThisFrame = false;
+        input.Update();
+
+        bool useItemPressedThisFrame = usePressedThisFrame;
+        bool useItemHeldNow = input.UseHeld;
+        bool useItemReleasedThisFrame = useReleasedThisFrame || (useItemHeldLastFrame && !useItemHeldNow);
+        usePressedThisFrame = false;
+        useReleasedThisFrame = false;
  
         if (debugSettings.selectedItem != lastDebugSelectedItem)
         {
@@ -275,7 +277,7 @@ public class ItemManager : MonoBehaviour
  
         if (bobombDebugLogging)
         {
-            LogBobombDebug($"Inputs: AimBackwardHeld={AimBackwardHeld}, UseItemHeld={useItemHeldNow}, UseItemTriggered={UseItemTriggered}, UseItemReleased={useItemReleasedThisFrame}, TrailingActive={bobombTrailingActive}");
+            LogBobombDebug($"Inputs: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeld={useItemHeldNow}, UseItemTriggered={useItemPressedThisFrame}, UseItemReleased={useItemReleasedThisFrame}, TrailingActive={bobombTrailingActive}");
         }
 
         if (player_script.hasitem)  //player has collided with an itembox and needs an item
@@ -296,11 +298,11 @@ public class ItemManager : MonoBehaviour
             }
 
 
-            if (UseItemTriggered && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_) //if item array order changes, change the indexes of utility methods and these if statements
+            if (useItemPressedThisFrame && item_decided && !player_script.HitByBanana_ && !player_script.HitByShell_) //if item array order changes, change the indexes of utility methods and these if statements
             {
                 if (current_Item.Equals("GreenShell")) //.Equals, not ==
                 {
-                    if (!AimBackwardHeld) // Hold to trail when stick neutral/up
+                    if (!input.AimBackwardHeld) // Hold to trail when stick neutral/up
                     {
                         StartTrailingItemIfNeeded(0);
                     }
@@ -308,7 +310,7 @@ public class ItemManager : MonoBehaviour
                 else if (current_Item.Equals("TripleGreenShells") && tripleItemCount > 0)
                 {
 
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         item_gameobjects[2].SetActive(true);
@@ -339,14 +341,14 @@ public class ItemManager : MonoBehaviour
                 } //THIS IS FOR TRIPLE GREEEN SHELLS
                 else if (current_Item.Equals("RedShell"))
                 {
-                    if (!AimBackwardHeld) // Hold to trail when stick neutral/up
+                    if (!input.AimBackwardHeld) // Hold to trail when stick neutral/up
                     {
                         StartTrailingItemIfNeeded(1);
                     }
                 }
                 else if (current_Item.Equals("TripleRedShells") && tripleItemCount > 0)
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         item_gameobjects[4].SetActive(true);
@@ -376,7 +378,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Mushroom"))
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         player_script.Boost_time = 2f;
                         for (int i = 0; i < player_script.BoostBurstPS.transform.childCount; i++) //boost burst
@@ -395,7 +397,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("TripleMushroom") && tripleItemCount > 0)
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         player_script.Boost_time = 2.5f;
                         tripleItemCount--;
@@ -422,14 +424,14 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Banana"))
                 {
-                    if (!AimBackwardHeld) // Hold to trail when stick neutral/up
+                    if (!input.AimBackwardHeld) // Hold to trail when stick neutral/up
                     {
                         StartTrailingItemIfNeeded(2);
                     }
                 }
                 else if (current_Item.Equals("TripleBananas"))
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         StartCoroutine(spawnBanana(1));
@@ -458,7 +460,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("GoldenMushroom"))
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         startMushroomTimer = true;
                         player_script.Boost_time = 2f;
@@ -484,7 +486,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Coin"))
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         StartCoroutine(UseCoin());
                             current_Item = ""; //1 use only
@@ -495,7 +497,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("ItemStar"))
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         current_Item = ""; //1 use only
                         used_Item_Done();
@@ -506,7 +508,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Bullet"))
                 {
-                    if (!AimBackwardHeld && !player_script.JUMP_PANEL) // Bullet only works forward
+                    if (!input.AimBackwardHeld && !player_script.JUMP_PANEL) // Bullet only works forward
                     {
                             if (!player_script.antiGravity)
                             {
@@ -526,7 +528,7 @@ public class ItemManager : MonoBehaviour
                 }
                 else if (current_Item.Equals("Bobomb-Hold"))
                 {
-                    if (!AimBackwardHeld && UseItemTriggered && !bobombTrailingActive) // Forward quick tap
+                    if (!input.AimBackwardHeld && useItemPressedThisFrame && !bobombTrailingActive) // Forward quick tap
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         StartCoroutine(useBobomb(1));
@@ -535,22 +537,22 @@ public class ItemManager : MonoBehaviour
                     }
                     else
                     {
-                        if (!bobombTrailingActive && AimBackwardHeld && useItemHeldNow)
+                        if (!bobombTrailingActive && input.AimBackwardHeld && useItemHeldNow)
                         {
-                            LogBobombDebug($"Attempting StartBobombTrailing: AimBackwardHeld={AimBackwardHeld}, UseItemHeldNow={useItemHeldNow}, UseItemTriggered={UseItemTriggered}, useItemHeldLastFrame={useItemHeldLastFrame}");
+                            LogBobombDebug($"Attempting StartBobombTrailing: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeldNow={useItemHeldNow}, UseItemTriggered={useItemPressedThisFrame}, useItemHeldLastFrame={useItemHeldLastFrame}");
                             StartBobombTrailing();
                         }
 
                         if (bobombTrailingActive && useItemReleasedThisFrame)
                         {
-                            LogBobombDebug($"Detected release input while trailing: AimBackwardHeld={AimBackwardHeld}, UseItemHeldNow={useItemHeldNow}, useItemReleasedThisFrame={useItemReleasedThisFrame}");
+                            LogBobombDebug($"Detected release input while trailing: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeldNow={useItemHeldNow}, useItemReleasedThisFrame={useItemReleasedThisFrame}");
                             ReleaseBobombTrailing();
                         }
                     }
                 }
                 else if (current_Item.Equals("BlueShell"))
                 {
-                    if (!AimBackwardHeld) // Forward
+                    if (!input.AimBackwardHeld) // Forward
                     {
                         player_script.Driver.SetTrigger("ThrowForward");
                         StartCoroutine(useBlueShell());
@@ -572,15 +574,15 @@ public class ItemManager : MonoBehaviour
             {
                 if (current_Item.Equals("GreenShell"))
                 {
-                    HandleGreenShellRelease(AimBackwardHeld);
+                    HandleGreenShellRelease(input.AimBackwardHeld);
                 }
                 else if (current_Item.Equals("RedShell"))
                 {
-                    HandleRedShellRelease(AimBackwardHeld);
+                    HandleRedShellRelease(input.AimBackwardHeld);
                 }
                 else if (current_Item.Equals("Banana"))
                 {
-                    HandleBananaRelease(AimBackwardHeld);
+                    HandleBananaRelease(input.AimBackwardHeld);
                 }
             }
         }
@@ -809,7 +811,7 @@ public class ItemManager : MonoBehaviour
             elapsedTime += Time.deltaTime;
             
             // Check if player pressed item button after minimum time
-            if (elapsedTime >= minimumRouletteTime && UseItemTriggered)
+            if (elapsedTime >= minimumRouletteTime && input.WasPressedThisFrame)
             {
                 break; // Stop the roulette early
             }
