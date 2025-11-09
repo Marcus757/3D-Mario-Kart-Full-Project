@@ -57,6 +57,7 @@ public class ItemManager : MonoBehaviour
     private Coroutine activeRoulette;
     private Coroutine debugAutoRefillRoutine;
     private bool suppressDebugAutoRefill;
+    private ItemHudPresenter hud;
     
     private void Awake()
     {
@@ -166,6 +167,7 @@ public class ItemManager : MonoBehaviour
     {
         player_script = GetComponent<Player>();
         playersounds = GetComponent<PlayerSounds>();
+        hud = new ItemHudPresenter(ItemUI, your_item, PlaySelectsound, Selected);
         
         LogBobombDebug("Start called, player and sound components cached");
         if (debugSettings.selectedItem != DebugItemSelection.None)
@@ -792,13 +794,8 @@ public class ItemManager : MonoBehaviour
 
         Debug.Log($"[ItemManager] Item_Select -> index {item_index} spriteSource {spinningSource} spriteName {(spinningSprite != null ? spinningSprite.name : "null")}");
 
-        if (your_item != null)
-        {
-            your_item.sprite = spinningSprite;
-        }
-
-        ItemUI.GetComponent<Animator>().SetBool("StartSelecting", true);
-        ItemUI.transform.GetChild(0).GetChild(0).GetComponent<Animator>().SetBool("Scroll", true);
+        hud.SetItemSprite(spinningSprite);
+        hud.StartRoulette();
         
         // Minimum roulette time before player can stop it
         float minimumRouletteTime = 1.5f;
@@ -838,8 +835,7 @@ public class ItemManager : MonoBehaviour
 
         current_Item = item_gameobjects[item_index].name;
 
-        PlaySelectsound.Stop();
-        Selected.Play();
+        hud.PlayLocked();
         item_decided = true;
         activeRoulette = null;
     }
@@ -1179,27 +1175,7 @@ public class ItemManager : MonoBehaviour
         player_script.has_item_hold = false;
         item_decided = false;
         start_select = false;
-        if (ItemUI != null)
-        {
-            var uiAnimator = ItemUI.GetComponent<Animator>();
-            if (uiAnimator != null)
-            {
-                uiAnimator.SetBool("StartSelecting", false);
-            }
-
-            if (ItemUI.transform.childCount > 0)
-            {
-                Transform child = ItemUI.transform.GetChild(0);
-                if (child != null && child.childCount > 0)
-                {
-                    var scrollAnimator = child.GetChild(0).GetComponent<Animator>();
-                    if (scrollAnimator != null)
-                    {
-                        scrollAnimator.SetBool("Scroll", false);
-                    }
-                }
-            }
-        }
+        hud.StopRoulette();
 
         if (player_script != null && player_script.Driver != null)
         {
