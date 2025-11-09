@@ -64,7 +64,10 @@ public class RACE_MANAGER : MonoBehaviour
     public GameObject[] set3;
 
 
-    public static Transform allPaths;
+    [SerializeField]
+    private Transform aiPathsRoot;
+    public static Transform allPaths { get; private set; }
+    public Transform AiPathsRoot => aiPathsRoot;
 
     public TrolleySystem trolleySystem;
 
@@ -96,7 +99,20 @@ public class RACE_MANAGER : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        allPaths = GameObject.Find("AI PATHS").transform;
+        if (aiPathsRoot == null)
+        {
+            GameObject found = GameObject.Find("AI PATHS");
+            if (found != null)
+            {
+                aiPathsRoot = found.transform;
+            }
+            else
+            {
+                Debug.LogWarning("RACE_MANAGER: AI paths root not assigned and no object named 'AI PATHS' was found in the scene.");
+            }
+        }
+
+        allPaths = aiPathsRoot;
         player = GameObject.FindGameObjectWithTag("Player").transform;
 
 
