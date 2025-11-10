@@ -90,6 +90,8 @@ public class ItemManager : MonoBehaviour
 
     [SerializeField]
     private Transform heldItemParent;
+    [SerializeField]
+    private Transform trailingItemParent;
 
     private GameObject[] item_gameobjects;
     private Sprite[] itemIcons;
@@ -98,6 +100,7 @@ public class ItemManager : MonoBehaviour
     private Dictionary<string, Sprite> iconByName;
     private Dictionary<string, Sprite> iconBySanitizedName;
     private readonly List<GameObject> runtimeHandInstances = new List<GameObject>();
+    private readonly List<GameObject> runtimeTrailingInstances = new List<GameObject>();
 
     public Image your_item;
 
@@ -147,8 +150,10 @@ public class ItemManager : MonoBehaviour
     public GameObject kart;
 
 
+    [HideInInspector]
     public GameObject CurrentTrailingItem;
-    public GameObject[] trailingItems;
+
+    private readonly Dictionary<string, GameObject> trailingVisuals = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
 
     public ParticleSystem coinSparkle;
 
@@ -168,9 +173,9 @@ public class ItemManager : MonoBehaviour
         OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
         itemBehaviours = new Dictionary<string, IItemBehaviour>
         {
-            { "GreenShell", new ShellItemBehaviour(0, false) },
-            { "RedShell", new ShellItemBehaviour(1, true) },
-            { "Banana", new BananaItemBehaviour(2) },
+            { "GreenShell", new ShellItemBehaviour("GreenShell", false) },
+            { "RedShell", new ShellItemBehaviour("RedShell", true) },
+            { "Banana", new BananaItemBehaviour("Banana") },
             { "TripleGreenShells", new TripleShellBehaviour(false) },
             { "TripleRedShells", new TripleShellBehaviour(true) },
             { "TripleBananas", new TripleBananaBehaviour() },
@@ -198,7 +203,11 @@ public class ItemManager : MonoBehaviour
 #endif
     public void SyncItemsFromDefinitions()
     {
+        CleanupTrailingItem();
         ClearRuntimeHandInstances();
+        ClearRuntimeTrailingInstances();
+        trailingVisuals.Clear();
+        CurrentTrailingItem = null;
 
         if (!TryEnsureCatalog())
         {
@@ -268,6 +277,18 @@ public class ItemManager : MonoBehaviour
             instance.SetActive(false);
             item_gameobjects[i] = instance;
             runtimeHandInstances.Add(instance);
+
+            if (!string.IsNullOrEmpty(canonicalName))
+            {
+                GameObject trailingInstance = catalog.InstantiateTrailingVisual(canonicalName, GetTrailingParent());
+                if (trailingInstance != null)
+                {
+                    AssignOrbitingOwner(trailingInstance);
+                    trailingInstance.SetActive(false);
+                    trailingVisuals[canonicalName] = trailingInstance;
+                    runtimeTrailingInstances.Add(trailingInstance);
+                }
+            }
         }
 
         CacheRuntimePrefabs();
@@ -312,6 +333,36 @@ public class ItemManager : MonoBehaviour
         runtimeHandInstances.Clear();
     }
 
+    private void ClearRuntimeTrailingInstances()
+    {
+        if (runtimeTrailingInstances == null || runtimeTrailingInstances.Count == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < runtimeTrailingInstances.Count; i++)
+        {
+            GameObject instance = runtimeTrailingInstances[i];
+            if (instance == null)
+            {
+                continue;
+            }
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                DestroyImmediate(instance);
+            }
+            else
+#endif
+            {
+                Destroy(instance);
+            }
+        }
+
+        runtimeTrailingInstances.Clear();
+    }
+
     private void AssignOrbitingOwner(GameObject root)
     {
         if (root == null)
@@ -324,6 +375,21 @@ public class ItemManager : MonoBehaviour
         {
             orbitingItems[i].SetOwner(gameObject);
         }
+    }
+
+    private Transform GetTrailingParent()
+    {
+        if (trailingItemParent != null)
+        {
+            return trailingItemParent;
+        }
+
+        if (backshellPos != null)
+        {
+            return backshellPos;
+        }
+
+        return transform;
     }
 
 
@@ -527,15 +593,14 @@ public class ItemManager : MonoBehaviour
         useItemHeldLastFrame = useItemHeldNow;
     }
 
-    internal void StartTrailingItemIfNeeded(int trailingIndex)
+    internal void StartTrailingItemIfNeeded(string canonicalName)
     {
-        if (trailingItems == null || trailingIndex < 0 || trailingIndex >= trailingItems.Length)
+        if (string.IsNullOrEmpty(canonicalName))
         {
             return;
         }
 
-        GameObject trailing = trailingItems[trailingIndex];
-        if (trailing == null)
+        if (!trailingVisuals.TryGetValue(canonicalName, out GameObject trailing) || trailing == null)
         {
             return;
         }
@@ -562,10 +627,10 @@ public class ItemManager : MonoBehaviour
             trailing.SetActive(true);
         }
 
-        GameObject heldItem = GetHeldVisual(item_index);
-            if (heldItem != null)
-            {
-                heldItem.SetActive(false);
+        GameObject heldItem = GetHeldVisual(canonicalName);
+        if (heldItem != null)
+        {
+            heldItem.SetActive(false);
         }
     }
 

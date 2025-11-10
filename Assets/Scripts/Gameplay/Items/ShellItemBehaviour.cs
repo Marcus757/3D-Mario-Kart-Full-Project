@@ -1,11 +1,11 @@
 public class ShellItemBehaviour : IItemBehaviour
 {
-    private readonly int trailingIndex;
+    private readonly string trailingItemName;
     private readonly bool isRedShell;
 
-    public ShellItemBehaviour(int trailingIndex, bool isRedShell)
+    public ShellItemBehaviour(string trailingItemName, bool isRedShell)
     {
-        this.trailingIndex = trailingIndex;
+        this.trailingItemName = trailingItemName;
         this.isRedShell = isRedShell;
     }
 
@@ -15,7 +15,7 @@ public class ShellItemBehaviour : IItemBehaviour
     {
         if (!aimBackwardHeld)
         {
-            context.Manager.StartTrailingItemIfNeeded(trailingIndex);
+            context.Manager.StartTrailingItemIfNeeded(trailingItemName);
         }
     }
 

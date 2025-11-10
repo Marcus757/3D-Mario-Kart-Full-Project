@@ -15,6 +15,7 @@ public class ItemCatalog : MonoBehaviour
     private readonly Dictionary<string, Sprite> iconByName = new Dictionary<string, Sprite>(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, GameObject> heldPrefabByName = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, GameObject> worldPrefabByName = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, GameObject> trailingPrefabByName = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
 
     private bool initialized;
 
@@ -58,6 +59,7 @@ public class ItemCatalog : MonoBehaviour
         iconByName.Clear();
         heldPrefabByName.Clear();
         worldPrefabByName.Clear();
+        trailingPrefabByName.Clear();
 
         for (int i = 0; i < DefinitionCount; i++)
         {
@@ -100,6 +102,12 @@ public class ItemCatalog : MonoBehaviour
             {
                 worldPrefabByName.Add(canonicalName, worldPrefab);
             }
+
+            if (definition.trailingPrefab != null && !trailingPrefabByName.ContainsKey(canonicalName))
+            {
+                trailingPrefabByName.Add(canonicalName, definition.trailingPrefab);
+            }
+
         }
 
         initialized = true;
@@ -242,6 +250,32 @@ public class ItemCatalog : MonoBehaviour
         return InstantiateHeldVisual(definition, parent);
     }
 
+    public GameObject InstantiateTrailingVisual(string canonicalName, Transform parent)
+    {
+        EnsureInitialized();
+
+        GameObject source = GetTrailingPrefab(canonicalName);
+        if (source == null)
+        {
+            return null;
+        }
+
+        Transform targetParent = parent != null ? parent : transform;
+        GameObject instance = Instantiate(source, targetParent);
+        string canonical = canonicalName;
+        ItemDefinition definition = GetDefinition(canonicalName);
+        if (definition != null)
+        {
+            canonical = GetCanonicalName(definition) ?? canonicalName;
+        }
+        if (string.IsNullOrEmpty(canonical))
+        {
+            canonical = source.name;
+        }
+        instance.name = $"{canonical}-Trailing";
+        return instance;
+    }
+
     public GameObject GetWorldPrefab(string canonicalName)
     {
         EnsureInitialized();
@@ -270,6 +304,36 @@ public class ItemCatalog : MonoBehaviour
         }
 
         return definition.prefab != null ? definition.prefab : definition.alternatePrefab;
+    }
+
+    public GameObject GetTrailingPrefab(string canonicalName)
+    {
+        EnsureInitialized();
+
+        if (string.IsNullOrEmpty(canonicalName))
+        {
+            return null;
+        }
+
+        if (trailingPrefabByName.TryGetValue(canonicalName, out GameObject prefab))
+        {
+            return prefab;
+        }
+
+        string sanitized = SanitizeName(canonicalName);
+        if (!string.IsNullOrEmpty(sanitized) && sanitizedToCanonical.TryGetValue(sanitized, out string canonical))
+        {
+            trailingPrefabByName.TryGetValue(canonical, out prefab);
+            return prefab;
+        }
+
+        ItemDefinition definition = GetDefinition(canonicalName);
+        if (definition == null)
+        {
+            return null;
+        }
+
+        return definition.trailingPrefab;
     }
 
     public GameObject GetWorldPrefab(DebugItemSelection selection)
