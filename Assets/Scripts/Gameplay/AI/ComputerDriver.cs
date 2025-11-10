@@ -7,6 +7,12 @@ public class ComputerDriver : MonoBehaviour
     public Player playerscript; //some parts of this script are the same constants defined in player script, so just access them directly
 
     private OpponentItemManager item_manage;
+    
+    [Header("DEBUG")]
+    public bool driveTowardsPlayer;
+    [SerializeField]
+    private float debugChaseSpeed = 30f;
+
 
     private Rigidbody rb;
     public LayerMask mask;
@@ -83,6 +89,7 @@ public class ComputerDriver : MonoBehaviour
 
     private RACE_MANAGER raceManager;
     private List<Transform> allPlayers = new List<Transform>();
+    private Transform player;
 
     bool StartBoost = false;
     float startBoostTime = 0;
@@ -128,6 +135,8 @@ public class ComputerDriver : MonoBehaviour
         Left_Wheel_Drift_PS = DriftPS.transform.GetChild(1).gameObject;
 
         raceManager = GameObject.Find("RaceManager").GetComponent<RACE_MANAGER>();
+        var playerObj = GameObject.FindGameObjectWithTag("Player");
+        player = playerObj != null ? playerObj.transform : null;
         //get all players except yourself
         for(int i = 0; i < raceManager.lapCounters.Count; i++)
         {
@@ -167,7 +176,7 @@ public class ComputerDriver : MonoBehaviour
             }
         }
 
-        if(!RACE_MANAGER.RACE_STARTED && !RACE_MANAGER.RACE_COMPLETED)
+        if(!RACE_MANAGER.RACE_STARTED && !RACE_MANAGER.RACE_COMPLETED && !driveTowardsPlayer)
         {
             if (StartBoost)
             {
@@ -216,12 +225,32 @@ public class ComputerDriver : MonoBehaviour
             steer();
             if (!GetComponent<OutOfBounds>().FellInWater && !GetComponent<OutOfBounds>().outOfBounds)
             {
-                Move();
+                if (driveTowardsPlayer)
+                {
+                    DriveDirectlyTowardPlayer();
+                }
+                else
+                {
+                if (driveTowardsPlayer)
+                {
+                    DriveDirectlyTowardPlayer();
+                }
+                else
+                {
+                    Move();
+                }
+                }
             }
 
-            drift_func();
-            animations();
-            lookAtOthers();
+            if (!driveTowardsPlayer)
+            {
+                drift_func();
+            }
+            if (!driveTowardsPlayer)
+            {
+                animations();
+                lookAtOthers();
+            }
 
             for(int i = 0; i < exhaustParticles.transform.childCount; i++)
             {
@@ -430,6 +459,28 @@ public class ComputerDriver : MonoBehaviour
         }
 
 
+    }
+
+    private void DriveDirectlyTowardPlayer()
+    {
+        if (player == null)
+        {
+            return;
+        }
+
+        Vector3 targetPosition = player.position;
+        Vector3 direction = (targetPosition - transform.position).normalized;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude > 0.0001f)
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(direction, Vector3.up);
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, 180f * Time.deltaTime);
+        }
+
+        current_speed = Mathf.Lerp(current_speed, debugChaseSpeed, 3f * Time.deltaTime);
+
+        rb.velocity = direction * current_speed;
     }
     void drift_func()
     {

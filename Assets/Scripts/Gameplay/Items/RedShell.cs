@@ -49,11 +49,13 @@ public class RedShell : MonoBehaviour
 
 
 
+    private bool pathsResolved;
+
     // Start is called before the first frame update
     void Start()
     {
 
-        pathMain = pathOption1;
+        EnsurePathsResolved();
 
         sphereCollider = GetComponent<SphereCollider>();
         rb = GetComponent<Rigidbody>();
@@ -192,8 +194,6 @@ public class RedShell : MonoBehaviour
             dir = Vector3.Dot(angle, transform.up);
 
 
-            float none = 0;
-
             // maybe get dir, and make float y lerp to that dir value, and then rotate y axis (space.self) according to that y value or something
 
             //float y = Mathf.SmoothDamp(transform.eulerAngles.y, transform.eulerAngles.y + dir, ref none, 2.5f * Time.deltaTime);
@@ -286,6 +286,13 @@ public class RedShell : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        EnsurePathsResolved();
+
+        if (pathMain == null || pathMain.childCount == 0)
+        {
+            return;
+        }
+
         //next waypoint
         if (other.transform == pathMain.GetChild(current_node))
         {
@@ -328,6 +335,8 @@ public class RedShell : MonoBehaviour
 
     private void OnTriggerStay(Collider other)
     {
+        EnsurePathsResolved();
+
         if (other.gameObject.name.Equals("ItemPathColliderPath1"))
         {
             pathMain = pathOption1;
@@ -484,5 +493,112 @@ public class RedShell : MonoBehaviour
         }
 
         Destroy(gameObject, 3);
+    }
+
+    private void EnsurePathsResolved()
+    {
+        if (pathsResolved && pathMain != null)
+        {
+            return;
+        }
+
+        Transform owner = null;
+        if (!string.IsNullOrEmpty(who_threw_shell))
+        {
+            GameObject ownerObject = GameObject.Find(who_threw_shell);
+            if (ownerObject != null)
+            {
+                owner = ownerObject.transform;
+            }
+        }
+
+        if (owner != null)
+        {
+            ItemManager itemManager = owner.GetComponent<ItemManager>();
+            if (itemManager != null)
+            {
+                if (itemManager.path1 != null)
+                {
+                    pathOption1 = itemManager.path1;
+                }
+                else if (itemManager.path != null)
+                {
+                    pathOption1 = itemManager.path;
+                }
+
+                if (itemManager.path2 != null)
+                {
+                    pathOption2 = itemManager.path2;
+                }
+            }
+            else
+            {
+                OpponentItemManager opponent = owner.GetComponent<OpponentItemManager>();
+                if (opponent != null)
+                {
+                    if (opponent.path != null)
+                    {
+                        pathOption1 = opponent.path;
+                    }
+
+                    if (opponent.path2 != null)
+                    {
+                        pathOption2 = opponent.path2;
+                    }
+                }
+            }
+        }
+
+        if (pathOption1 == null)
+        {
+            Transform globalPaths = RACE_MANAGER.allPaths;
+            if (globalPaths != null)
+            {
+                if (globalPaths.childCount > 0)
+                {
+                    pathOption1 = globalPaths.GetChild(0);
+                }
+                else
+                {
+                    pathOption1 = globalPaths;
+                }
+            }
+            else
+            {
+                GameObject legacy = GameObject.Find("ITEM PATHS");
+                if (legacy != null)
+                {
+                    pathOption1 = legacy.transform;
+                }
+            }
+        }
+
+        if (pathOption2 == null)
+        {
+            if (pathOption1 != null && pathOption1.childCount > 1)
+            {
+                pathOption2 = pathOption1.GetChild(1);
+            }
+            else
+            {
+                Transform globalPaths = RACE_MANAGER.allPaths;
+                if (globalPaths != null && globalPaths.childCount > 1)
+                {
+                    pathOption2 = globalPaths.GetChild(1);
+                }
+                else
+                {
+                    pathOption2 = pathOption1;
+                }
+            }
+        }
+
+        pathMain = pathOption1;
+        pathsResolved = pathMain != null;
+
+        if (!pathsResolved)
+        {
+            Debug.LogWarning($"[RedShell] Unable to resolve paths for '{name}'.", this);
+        }
     }
 }

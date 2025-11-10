@@ -315,7 +315,7 @@ public class Bobomb : MonoBehaviour
         StartCoroutine(explodeImmediately());
     }
 
-    public void BeginHeld(float fuseDuration, Action onHeldExplosion)
+    public void BeginHeld(Action onHeldExplosion)
     {
         if (rb == null)
         {
@@ -324,7 +324,7 @@ public class Bobomb : MonoBehaviour
 
         isHeld = true;
         heldFuseActive = true;
-        heldFuseTimer = fuseDuration;
+        heldFuseTimer = throwForceMultiplier > 1f ? 2f / throwForceMultiplier : 2f;
         heldExplosionCallback = onHeldExplosion;
 
         rb.isKinematic = true;

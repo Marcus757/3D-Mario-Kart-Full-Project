@@ -47,6 +47,11 @@ public class Banana : MonoBehaviour
 
     public void Banana_thrown(float extraForward){
         //throwForceUp = Mathf.SmoothStep(throwForceUp, -50000, 8 * Time.deltaTime);
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
         rb.AddForce(transform.up * throwForceUp * Time.deltaTime, ForceMode.Impulse);
         rb.AddForce(-transform.forward * (throwForceForward + extraForward) * Time.deltaTime, ForceMode.Impulse);
     }

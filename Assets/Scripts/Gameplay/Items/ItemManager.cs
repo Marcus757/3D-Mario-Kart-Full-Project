@@ -14,20 +14,7 @@ public class ItemManager : MonoBehaviour
     private bool useItemHeldLastFrame;
     private bool bobombTrailingActive;
     private GameObject activeTrailingBobomb;
-    [SerializeField]
-    private float bobombHeldFuseDuration = 2f;
-    [SerializeField]
-    private bool bobombDebugLogging;
-
-    private void LogBobombDebug(string message)
-    {
-        if (!bobombDebugLogging)
-        {
-            return;
-        }
-
-        Debug.Log($"[BobombDebug][{name}] {message}");
-    }
+    [SerializeField] private bool orbitingDebugLogging;
 
     [System.Serializable]
     private class DebugItemSettings
@@ -39,8 +26,8 @@ public class ItemManager : MonoBehaviour
     [SerializeField]
     private DebugItemSettings debugSettings = new DebugItemSettings();
 
-    private ItemDefinition[] itemDefinitions;
-
+    private ItemCatalog catalog;
+    private bool catalogNotFoundLogged;
     private DebugItemSelection lastDebugSelectedItem = DebugItemSelection.None;
     private int debugForcedItemIndex = -1;
     private Coroutine activeRoulette;
@@ -61,7 +48,10 @@ public class ItemManager : MonoBehaviour
     private void Awake()
     {
         input = new ItemInputHandler(new GameControls());
-        LogBobombDebug("Awake initialized GameControls instance");
+        if (!TryEnsureCatalog())
+        {
+            enabled = false;
+        }
     }
     
     private void OnEnable()
@@ -69,7 +59,6 @@ public class ItemManager : MonoBehaviour
         input.UsePressed += HandleUsePressed;
         input.UseReleased += HandleUseReleased;
         input.Enable();
-        LogBobombDebug("Item controls enabled");
     }
     
     private void OnDisable()
@@ -77,7 +66,6 @@ public class ItemManager : MonoBehaviour
         input.UsePressed -= HandleUsePressed;
         input.UseReleased -= HandleUseReleased;
         input.Disable();
-        LogBobombDebug("Item controls disabled");
     }
 
     private void HandleUsePressed() => usePressedThisFrame = true;
@@ -88,7 +76,6 @@ public class ItemManager : MonoBehaviour
 
         if (bobombTrailingActive && current_Item.Equals("Bobomb-Hold"))
         {
-            LogBobombDebug("UseItem canceled while trailing; releasing immediately from release callback");
             ReleaseBobombTrailing();
         }
     }
@@ -101,17 +88,26 @@ public class ItemManager : MonoBehaviour
     public AudioSource PlaySelectsound;
     public AudioSource Selected;
 
-    public Sprite[] items_possible;
-    public GameObject[] item_gameobjects;
+    [SerializeField]
+    private Transform heldItemParent;
+
+    private GameObject[] item_gameobjects;
+    private Sprite[] itemIcons;
+    private string[] itemNames;
+    private Dictionary<string, int> itemIndexByName;
+    private Dictionary<string, Sprite> iconByName;
+    private Dictionary<string, Sprite> iconBySanitizedName;
+    private readonly List<GameObject> runtimeHandInstances = new List<GameObject>();
+
     public Image your_item;
 
-    [Header("ITEMS")]
-    public GameObject shell;
-    public GameObject redShell;
-    public GameObject banana;
-    public GameObject coin;
-    public GameObject bobomb;
-    public GameObject BlueShell;
+    [Header("ITEM PREFABS (Runtime)")]
+    private GameObject greenShellPrefab;
+    private GameObject redShellPrefab;
+    private GameObject bananaPrefab;
+    private GameObject coinPrefab;
+    private GameObject bobombPrefab;
+    private GameObject blueShellPrefab;
     public Transform shellSpawnPos;
     public Transform backshellPos; //also for bananas
     public Transform BananaSpawnPos;
@@ -168,6 +164,8 @@ public class ItemManager : MonoBehaviour
         playersounds = GetComponent<PlayerSounds>();
         hud = new ItemHudPresenter(ItemUI, your_item, PlaySelectsound, Selected);
         itemContext = new ItemContext(this, player_script, playersounds);
+        SyncItemsFromDefinitions();
+        OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
         itemBehaviours = new Dictionary<string, IItemBehaviour>
         {
             { "GreenShell", new ShellItemBehaviour(0, false) },
@@ -186,7 +184,8 @@ public class ItemManager : MonoBehaviour
             { "Bobomb-Hold", new BobombItemBehaviour() }
         };
         
-        LogBobombDebug("Start called, player and sound components cached");
+        OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
+
         if (debugSettings.selectedItem != DebugItemSelection.None)
         {
             lastDebugSelectedItem = debugSettings.selectedItem;
@@ -195,78 +194,273 @@ public class ItemManager : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    [ContextMenu("Sync Item Arrays From Definitions")]
+    [ContextMenu("Rebuild Item Cache From Definitions")]
+#endif
     public void SyncItemsFromDefinitions()
     {
-        if (itemDefinitions == null || itemDefinitions.Length == 0)
+        ClearRuntimeHandInstances();
+
+        if (!TryEnsureCatalog())
         {
+            item_gameobjects = System.Array.Empty<GameObject>();
+            itemIcons = System.Array.Empty<Sprite>();
+            itemNames = System.Array.Empty<string>();
+            itemIndexByName = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+            iconByName = new Dictionary<string, Sprite>(System.StringComparer.OrdinalIgnoreCase);
+            iconBySanitizedName = new Dictionary<string, Sprite>();
             return;
         }
 
-        // Resize items_possible array if needed
-        if (items_possible == null || items_possible.Length < itemDefinitions.Length)
+        int count = catalog.DefinitionCount;
+
+        item_gameobjects = count > 0 ? new GameObject[count] : System.Array.Empty<GameObject>();
+        itemIcons = count > 0 ? new Sprite[count] : System.Array.Empty<Sprite>();
+        itemNames = count > 0 ? new string[count] : System.Array.Empty<string>();
+        itemIndexByName = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+        iconByName = new Dictionary<string, Sprite>(System.StringComparer.OrdinalIgnoreCase);
+        iconBySanitizedName = new Dictionary<string, Sprite>();
+
+        Transform parent = heldItemParent != null ? heldItemParent : transform;
+
+        for (int i = 0; i < count; i++)
         {
-            System.Array.Resize(ref items_possible, itemDefinitions.Length);
-        }
+            ItemDefinition definition = catalog.GetDefinition(i);
+            Sprite icon = catalog.GetIcon(i);
+            itemIcons[i] = icon;
 
-        for (int i = 0; i < itemDefinitions.Length; i++)
-        {
-            var def = itemDefinitions[i];
-            items_possible[i] = def != null ? def.icon : null;
-        }
+            string canonicalName = catalog.GetCanonicalName(definition);
+            itemNames[i] = canonicalName;
 
-        // Resize item_gameobjects array if needed
-        if (item_gameobjects == null || item_gameobjects.Length < itemDefinitions.Length)
-        {
-            System.Array.Resize(ref item_gameobjects, itemDefinitions.Length);
-        }
+            if (!string.IsNullOrEmpty(canonicalName))
+            {
+                if (!itemIndexByName.ContainsKey(canonicalName))
+                {
+                    itemIndexByName.Add(canonicalName, i);
+                }
+            }
 
-        for (int i = 0; i < itemDefinitions.Length; i++)
-        {
-            var def = itemDefinitions[i];
-            item_gameobjects[i] = def != null ? (def.handPrefab != null ? def.handPrefab : def.prefab) : null;
-        }
+            if (icon != null && !string.IsNullOrEmpty(canonicalName))
+            {
+                if (!iconByName.ContainsKey(canonicalName))
+                {
+                    iconByName.Add(canonicalName, icon);
+                }
 
-        shell = FindDefinitionPrefab(DebugItemSelection.GreenShell);
-        redShell = FindDefinitionPrefab(DebugItemSelection.RedShell);
-        banana = FindDefinitionPrefab(DebugItemSelection.Banana);
-        coin = FindDefinitionPrefab(DebugItemSelection.Coin);
-        bobomb = FindDefinitionPrefab(DebugItemSelection.BobombHold);
-        BlueShell = FindDefinitionPrefab(DebugItemSelection.BlueShell);
+                string sanitized = SanitizeName(canonicalName);
+                if (!string.IsNullOrEmpty(sanitized) && !iconBySanitizedName.ContainsKey(sanitized))
+                {
+                    iconBySanitizedName.Add(sanitized, icon);
+                }
+            }
 
-        // optional: directly assign single-item references when debugSelection matches
-        UnityEditor.EditorUtility.SetDirty(this);
-    }
-
-    private GameObject FindDefinitionPrefab(DebugItemSelection debugSelection)
-    {
-        if (itemDefinitions == null)
-        {
-            return null;
-        }
-
-        for (int i = 0; i < itemDefinitions.Length; i++)
-        {
-            var def = itemDefinitions[i];
-            if (def == null)
+            if (!Application.isPlaying || definition == null)
             {
                 continue;
             }
 
-            if (def.debugSelection == debugSelection)
+            GameObject instance = catalog.InstantiateHeldVisual(i, parent);
+            if (instance == null)
             {
-                return def.handPrefab != null ? def.handPrefab : def.prefab;
+                continue;
+            }
+
+            AssignOrbitingOwner(instance);
+            instance.SetActive(false);
+            item_gameobjects[i] = instance;
+            runtimeHandInstances.Add(instance);
+        }
+
+        CacheRuntimePrefabs();
+
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+#endif
+
+        OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
+    }
+
+    private void ClearRuntimeHandInstances()
+    {
+        if (runtimeHandInstances == null || runtimeHandInstances.Count == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < runtimeHandInstances.Count; i++)
+        {
+            GameObject instance = runtimeHandInstances[i];
+            if (instance == null)
+            {
+                continue;
+            }
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                DestroyImmediate(instance);
+            }
+            else
+#endif
+            {
+                Destroy(instance);
             }
         }
 
-        return null;
+        runtimeHandInstances.Clear();
     }
 
-    [ContextMenu("Clear Legacy Item Arrays")]
+    private void AssignOrbitingOwner(GameObject root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        OrbitingItems[] orbitingItems = root.GetComponentsInChildren<OrbitingItems>(true);
+        for (int i = 0; i < orbitingItems.Length; i++)
+        {
+            orbitingItems[i].SetOwner(gameObject);
+        }
+    }
+
+
+    private bool TryEnsureCatalog()
+    {
+        if (catalog != null)
+        {
+            catalog.Initialize();
+            catalogNotFoundLogged = false;
+            return true;
+        }
+
+        catalog = ItemCatalog.Instance;
+        if (catalog == null)
+        {
+            catalog = FindObjectOfType<ItemCatalog>(true);
+        }
+
+        if (catalog != null)
+        {
+            catalog.Initialize();
+            catalogNotFoundLogged = false;
+            return true;
+        }
+
+        if (!catalogNotFoundLogged)
+        {
+            Debug.LogError("ItemCatalog could not be found in the scene.", this);
+            catalogNotFoundLogged = true;
+        }
+
+        return false;
+    }
+
+    private void CacheRuntimePrefabs()
+    {
+        greenShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.GreenShell);
+        redShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.RedShell);
+        bananaPrefab = GetPrefabFromDefinitions(DebugItemSelection.Banana);
+        coinPrefab = GetPrefabFromDefinitions(DebugItemSelection.Coin);
+        bobombPrefab = GetPrefabFromDefinitions(DebugItemSelection.BobombHold);
+        blueShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.BlueShell);
+    }
+
+    private GameObject GetPrefabFromDefinitions(DebugItemSelection selection)
+    {
+        if (!TryEnsureCatalog())
+        {
+            return null;
+        }
+
+        return catalog.GetWorldPrefab(selection);
+    }
+
+    private GameObject GetHeldVisual(int index)
+    {
+        if (item_gameobjects == null || index < 0 || index >= item_gameobjects.Length)
+        {
+            return null;
+        }
+
+        return item_gameobjects[index];
+    }
+
+    private GameObject GetHeldVisual(string canonicalName)
+    {
+        return GetHeldVisual(GetItemIndex(canonicalName));
+    }
+
+    private int GetItemIndex(string canonicalName)
+    {
+        if (string.IsNullOrEmpty(canonicalName) || itemIndexByName == null)
+        {
+            return -1;
+        }
+
+        return itemIndexByName.TryGetValue(canonicalName, out int index) ? index : -1;
+    }
+
+    private string GetItemNameByIndex(int index)
+    {
+        if (itemNames == null || index < 0 || index >= itemNames.Length)
+        {
+            return null;
+        }
+
+        return itemNames[index];
+    }
+
+    private void DeactivateHeldVisual(int index)
+    {
+        GameObject visual = GetHeldVisual(index);
+        if (visual != null)
+        {
+            visual.SetActive(false);
+        }
+    }
+
+    private void DeactivateHeldVisual(string canonicalName)
+    {
+        DeactivateHeldVisual(GetItemIndex(canonicalName));
+    }
+
+    private GameObject InstantiateItemPrefab(string itemName, GameObject prefab, Vector3 position, Quaternion rotation, Transform parent = null)
+    {
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[ItemManager] Unable to spawn '{itemName}' because its prefab reference is missing.", this);
+            return null;
+        }
+
+        return parent != null
+            ? Instantiate(prefab, position, rotation, parent)
+            : Instantiate(prefab, position, rotation);
+    }
+
+    private ItemDefinition GetDefinitionByName(string canonicalName)
+    {
+        if (string.IsNullOrEmpty(canonicalName) || !TryEnsureCatalog())
+        {
+            return null;
+        }
+
+        return catalog.GetDefinition(canonicalName);
+    }
+
+#if UNITY_EDITOR
+    [ContextMenu("Clear Runtime Item Cache")]
     public void ClearLegacyItemArrays()
     {
-        items_possible = System.Array.Empty<Sprite>();
+        ClearRuntimeHandInstances();
         item_gameobjects = System.Array.Empty<GameObject>();
+        itemIcons = System.Array.Empty<Sprite>();
+        itemNames = System.Array.Empty<string>();
+        itemIndexByName = null;
+        iconByName = null;
+        iconBySanitizedName = null;
         UnityEditor.EditorUtility.SetDirty(this);
     }
 #endif
@@ -294,10 +488,6 @@ public class ItemManager : MonoBehaviour
             }
         }
  
-        if (bobombDebugLogging)
-        {
-            LogBobombDebug($"Inputs: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeld={useItemHeldNow}, UseItemTriggered={useItemPressedThisFrame}, UseItemReleased={useItemReleasedThisFrame}, TrailingActive={bobombTrailingActive}");
-        }
 
         if (player_script.hasitem)  //player has collided with an itembox and needs an item
         {
@@ -372,13 +562,10 @@ public class ItemManager : MonoBehaviour
             trailing.SetActive(true);
         }
 
-        if (item_gameobjects != null && item_index >= 0 && item_index < item_gameobjects.Length)
-        {
-            GameObject heldItem = item_gameobjects[item_index];
+        GameObject heldItem = GetHeldVisual(item_index);
             if (heldItem != null)
             {
                 heldItem.SetActive(false);
-            }
         }
     }
 
@@ -392,7 +579,7 @@ public class ItemManager : MonoBehaviour
         if (aimBackwardHeld)
         {
             CleanupTrailingItem();
-            ActivateItemGameObject(2);
+            ActivateHeldVisual("GreenShell");
             if (player_script != null && player_script.Driver != null)
             {
                 player_script.Driver.SetTrigger("ThrowBackward");
@@ -406,7 +593,7 @@ public class ItemManager : MonoBehaviour
         else
         {
             CleanupTrailingItem();
-            ActivateItemGameObject(2);
+            ActivateHeldVisual("GreenShell");
             if (player_script != null && player_script.Driver != null)
             {
                 player_script.Driver.SetTrigger("ThrowForward");
@@ -428,7 +615,7 @@ public class ItemManager : MonoBehaviour
         if (aimBackwardHeld)
         {
             CleanupTrailingItem();
-            ActivateItemGameObject(4);
+            ActivateHeldVisual("RedShell");
             if (player_script != null && player_script.Driver != null)
             {
                 player_script.Driver.SetTrigger("ThrowBackward");
@@ -442,7 +629,7 @@ public class ItemManager : MonoBehaviour
         else
         {
             CleanupTrailingItem();
-            ActivateItemGameObject(4);
+            ActivateHeldVisual("RedShell");
             if (player_script != null && player_script.Driver != null)
             {
                 player_script.Driver.SetTrigger("ThrowForward");
@@ -497,14 +684,9 @@ public class ItemManager : MonoBehaviour
         }
     }
 
-    private void ActivateItemGameObject(int index)
+    private void ActivateHeldVisual(string canonicalName)
     {
-        if (item_gameobjects == null || index < 0 || index >= item_gameobjects.Length)
-        {
-            return;
-        }
-
-        GameObject target = item_gameobjects[index];
+        GameObject target = GetHeldVisual(canonicalName);
         if (target != null)
         {
             target.SetActive(true);
@@ -568,8 +750,12 @@ public class ItemManager : MonoBehaviour
         }
 
         player_script.Driver.SetTrigger(aimBackwardHeld ? "ThrowBackward" : "ThrowForward");
-        int shellIndex = isRedShell ? 4 : 2;
-        item_gameobjects[shellIndex].SetActive(true);
+        int shellIndex = GetItemIndex(isRedShell ? "RedShell" : "GreenShell");
+        GameObject shellVisual = GetHeldVisual(shellIndex);
+        if (shellVisual != null)
+        {
+            shellVisual.SetActive(true);
+        }
 
         if (aimBackwardHeld)
         {
@@ -599,9 +785,10 @@ public class ItemManager : MonoBehaviour
         }
 
         tripleItemCount--;
-        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
         {
-            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
         }
 
         if (tripleItemCount < 1)
@@ -633,9 +820,10 @@ public class ItemManager : MonoBehaviour
         }
 
         tripleItemCount--;
-        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
         {
-            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
         }
 
         if (tripleItemCount < 1)
@@ -647,17 +835,42 @@ public class ItemManager : MonoBehaviour
     private void ResetTripleItemHolder()
     {
         current_Item = "";
-        if (item_gameobjects != null && item_index >= 0 && item_index < item_gameobjects.Length)
+        GameObject tripleObject = GetHeldVisual(item_index);
+        if (tripleObject != null)
         {
-            GameObject tripleObject = item_gameobjects[item_index];
-            if (tripleObject != null)
-            {
-                tripleObject.SetActive(false);
-                ResetTripleChildren(tripleObject);
-            }
+            tripleObject.SetActive(false);
+            ResetTripleChildren(tripleObject);
         }
         tripleItemCount = 0;
         used_Item_Done();
+    }
+
+    public void HandleOrbitingItemConsumed(GameObject orbitingItem)
+    {
+        if (orbitingItem != null)
+        {
+            orbitingItem.SetActive(false);
+        }
+
+        int previousCount = tripleItemCount;
+        if (previousCount <= 0)
+        {
+            ResetTripleItemHolder();
+            return;
+        }
+
+        tripleItemCount = Mathf.Max(0, tripleItemCount - 1);
+
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
+        {
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+        }
+
+        if (tripleItemCount < 1)
+        {
+            ResetTripleItemHolder();
+        }
     }
 
     internal void HandleMushroomUse()
@@ -669,7 +882,7 @@ public class ItemManager : MonoBehaviour
 
         player_script.Boost_time = 2f;
         PlayBoostEffects();
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         current_Item = "";
         used_Item_Done();
     }
@@ -684,9 +897,10 @@ public class ItemManager : MonoBehaviour
         player_script.Boost_time = 2.5f;
         tripleItemCount--;
         PlayBoostEffects();
-        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
         {
-            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
         }
         if (tripleItemCount < 1)
         {
@@ -719,7 +933,7 @@ public class ItemManager : MonoBehaviour
         PlayBoostEffects();
         if (GoldenMushroomTimer < 0)
         {
-            item_gameobjects[item_index].SetActive(false);
+            DeactivateHeldVisual(item_index);
             current_Item = "";
             used_Item_Done();
             startMushroomTimer = false;
@@ -793,16 +1007,28 @@ public class ItemManager : MonoBehaviour
         item_index = resolvedIndex;
 
         Sprite spinningSprite = null;
-        string spinningSource = "definition";
-        if (itemDefinitions != null && item_index >= 0 && item_index < itemDefinitions.Length)
+        string spinningSource = "icon-cache";
+
+        if (itemIcons != null && item_index >= 0 && item_index < itemIcons.Length)
         {
-            spinningSprite = itemDefinitions[item_index]?.icon;
+            spinningSprite = itemIcons[item_index];
         }
 
-        if (spinningSprite == null && items_possible != null && item_index >= 0 && item_index < items_possible.Length)
+        if (spinningSprite == null && TryEnsureCatalog() && item_index >= 0)
         {
-            spinningSprite = items_possible[item_index];
-            spinningSource = "legacy";
+            Sprite catalogSprite = catalog.GetIcon(item_index);
+            if (catalogSprite != null)
+            {
+                spinningSprite = catalogSprite;
+                spinningSource = "catalog";
+            }
+        }
+
+        if (spinningSprite == null)
+        {
+            spinningSource = "lookup";
+            string canonicalName = GetItemNameByIndex(item_index);
+            spinningSprite = FindSpriteForItem(canonicalName);
         }
 
         Debug.Log($"[ItemManager] Item_Select -> index {item_index} spriteSource {spinningSource} spriteName {(spinningSprite != null ? spinningSprite.name : "null")}");
@@ -829,24 +1055,34 @@ public class ItemManager : MonoBehaviour
             yield return null;
         }
         
-        item_gameobjects[item_index].SetActive(true); //show the gameobject
-        if (item_gameobjects[item_index].tag != "Non-Hold-Item")
+        GameObject heldVisual = GetHeldVisual(item_index);
+        if (heldVisual != null)
+        {
+            heldVisual.SetActive(true);
+        }
+
+        string selectedItemName = GetItemNameByIndex(item_index) ?? heldVisual?.name;
+        bool isTripleSelection = IsTripleItem(selectedItemName);
+        bool treatAsTriple = isTripleSelection || (heldVisual != null && heldVisual.CompareTag("Non-Hold-Item"));
+
+        if (!treatAsTriple)
         {
             player_script.Driver.SetBool("hasItem", true);
             player_script.has_item_hold = true;
             tripleItemCount = 0;
 
-            if(item_gameobjects[item_index].name == "GoldenMushroom")
+            if (!string.IsNullOrEmpty(selectedItemName) &&
+                string.Equals(selectedItemName, "GoldenMushroom", System.StringComparison.OrdinalIgnoreCase))
             {
                 GoldenMushroomTimer = 10f;
             }
         }
         else
         {
-            tripleItemCount = 3; //triple item
+            tripleItemCount = 3;
         }
 
-        current_Item = item_gameobjects[item_index].name;
+        current_Item = selectedItemName ?? string.Empty;
 
         hud.PlayLocked();
         item_decided = true;
@@ -858,32 +1094,43 @@ public class ItemManager : MonoBehaviour
     {
 
         yield return new WaitForSeconds(0.15f);
-        GameObject clone = Instantiate(shell, position.position, position.rotation);
-        clone.GetComponent<GreenShell>().who_threw_shell = gameObject.name;
+        GameObject clone = InstantiateItemPrefab("GreenShell", greenShellPrefab, position.position, position.rotation);
+        if (clone == null)
+        {
+            yield break;
+        }
+
+        GreenShell greenShell = clone.GetComponent<GreenShell>();
+        if (greenShell == null)
+        {
+            Debug.LogWarning("[ItemManager] Spawned GreenShell prefab is missing GreenShell component.", clone);
+            yield break;
+        }
+
+        greenShell.who_threw_shell = gameObject.name;
 
         if (direction == 1) //backwards or forwards -1 and 1 respectively
         {
-            clone.GetComponent<GreenShell>().myVelocity = transform.forward.normalized;
-            clone.GetComponent<GreenShell>().velocityMagOriginal = 6000;
-            clone.GetComponent<GreenShell>().AntiGravity = player_script.antiGravity;
-
-            clone.GetComponent<GreenShell>().lifetime = 0;
+            greenShell.myVelocity = transform.forward.normalized;
+            greenShell.velocityMagOriginal = 6000;
+            greenShell.AntiGravity = player_script.antiGravity;
+            greenShell.lifetime = 0;
 
             yield return new WaitForSeconds(0.25f);
-            item_gameobjects[2].SetActive(false); //hand shell
+            DeactivateHeldVisual("GreenShell");
 
         }
         
         if (direction == -1)
         {
-            clone.GetComponent<GreenShell>().myVelocity = -transform.forward.normalized;
-            clone.GetComponent<GreenShell>().velocityMagOriginal = 3500;
-            clone.GetComponent<GreenShell>().AntiGravity = player_script.antiGravity;
+            greenShell.myVelocity = -transform.forward.normalized;
+            greenShell.velocityMagOriginal = 3500;
+            greenShell.AntiGravity = player_script.antiGravity;
 
 
             
             yield return new WaitForSeconds(0.25f);
-            item_gameobjects[2].SetActive(false); //hand shell
+            DeactivateHeldVisual("GreenShell");
             for (int i = 0; i < 75; i++)
             {
                 if (!StarPowerUp)
@@ -914,74 +1161,89 @@ public class ItemManager : MonoBehaviour
     }
     IEnumerator spawnRedShell(Transform position, int direction)
     {
-
-        if(direction == 1)
+        yield return new WaitForSeconds(0.15f);
+        GameObject clone = InstantiateItemPrefab("RedShell", redShellPrefab, position.position, position.rotation);
+        if (clone == null)
         {
-            yield return new WaitForSeconds(0.15f);
-            GameObject clone = Instantiate(redShell, position.position, position.rotation);
-            clone.GetComponent<RedShell>().who_threw_shell = gameObject.name;
-            clone.GetComponent<RedShell>().AntiGravity = player_script.antiGravity;
-
-
-            clone.SetActive(true);
-            clone.GetComponent<RedShell>().current_node = currentWayPoint; //currentWayPoint
-            yield return new WaitForSeconds(0.25f);
-            item_gameobjects[4].SetActive(false); //hand shell
+            yield break;
         }
-        else if(direction == -1)
-        {
-            yield return new WaitForSeconds(0.15f);
-            GameObject clone = Instantiate(redShell, position.position, position.rotation);
-            clone.SetActive(false);
-            clone.GetComponent<RedShell>().who_threw_shell = gameObject.name;
 
-            clone.GetComponent<RedShell>().enabled = false;
-            clone.AddComponent<GreenShell>();
-            clone.GetComponent<GreenShell>().lifetime = 0;
+        RedShell redShell = clone.GetComponent<RedShell>();
+        if (redShell == null)
+        {
+            Debug.LogWarning("[ItemManager] Spawned RedShell prefab is missing RedShell component.", clone);
+            yield break;
+        }
+
+        redShell.who_threw_shell = gameObject.name;
+        redShell.AntiGravity = player_script.antiGravity;
+
+        if (direction == 1)
+        {
+            clone.SetActive(true);
+            redShell.current_node = currentWayPoint;
+            yield return new WaitForSeconds(0.25f);
+            DeactivateHeldVisual("RedShell");
+        }
+        else if (direction == -1)
+        {
+            clone.SetActive(false);
+            redShell.enabled = false;
+
+            GreenShell tempShell = clone.GetComponent<GreenShell>();
+            if (tempShell == null)
+            {
+                tempShell = clone.AddComponent<GreenShell>();
+            }
+
+            tempShell.lifetime = 0;
+            tempShell.myVelocity = -transform.forward.normalized;
+            tempShell.velocityMagOriginal = 3500;
+            tempShell.AntiGravity = player_script.antiGravity;
+            tempShell.who_threw_shell = gameObject.name;
 
             clone.SetActive(true);
 
-            clone.GetComponent<GreenShell>().myVelocity = -transform.forward.normalized;
-            clone.GetComponent<GreenShell>().velocityMagOriginal = 3500;
-            clone.GetComponent<GreenShell>().AntiGravity = player_script.antiGravity;
-
-            clone.GetComponent<GreenShell>().who_threw_shell = gameObject.name;
-
-
             yield return new WaitForSeconds(0.25f);
-            item_gameobjects[4].SetActive(false); //hand shell
-            for(int i = 0; i < 75; i++)
+            DeactivateHeldVisual("RedShell");
+
+            for (int i = 0; i < 75; i++)
             {
                 if (!StarPowerUp)
                 {
                     player_script.SpecialFace = true;
-                    player_script.current_face_material = player_script.faces[1]; //make sure it is not changed, by repeating in for loop
+                    player_script.current_face_material = player_script.faces[1];
                 }
                 yield return new WaitForSeconds(0.01f);
             }
+
             if (!StarPowerUp)
             {
                 player_script.SpecialFace = true;
-                player_script.current_face_material = player_script.faces[2]; //blink
+                player_script.current_face_material = player_script.faces[2];
             }
+
             yield return new WaitForSeconds(0.1f);
+
             if (!StarPowerUp)
             {
                 player_script.SpecialFace = false;
-                player_script.current_face_material = player_script.faces[0];//normal
+                player_script.current_face_material = player_script.faces[0];
             }
         }
-        
-
     }
     IEnumerator useBobomb(int direction)
     {
         if(direction == 1)
         {
             yield return new WaitForSeconds(0.1f);
-            item_gameobjects[item_index].SetActive(false);
+            DeactivateHeldVisual(item_index);
 
-            GameObject clone = Instantiate(bobomb, BananaSpawnPos.position, BananaSpawnPos.rotation);
+            GameObject clone = InstantiateItemPrefab("Bobomb-Hold", bobombPrefab, BananaSpawnPos.position, BananaSpawnPos.rotation);
+            if (clone == null)
+            {
+                yield break;
+            }
             clone.SetActive(true);
             var cloneBomb = clone.GetComponent<Bobomb>();
             if (cloneBomb != null)
@@ -1007,9 +1269,13 @@ public class ItemManager : MonoBehaviour
         if(direction == -1)
         {
             yield return new WaitForSeconds(0.1f);
-            item_gameobjects[item_index].SetActive(false);
+            DeactivateHeldVisual(item_index);
 
-            GameObject clone = Instantiate(bobomb, backshellPos.position, BananaSpawnPos.rotation);
+            GameObject clone = InstantiateItemPrefab("Bobomb-Hold", bobombPrefab, backshellPos.position, BananaSpawnPos.rotation);
+            if (clone == null)
+            {
+                yield break;
+            }
             clone.SetActive(true);
             var cloneBomb = clone.GetComponent<Bobomb>();
             if (cloneBomb != null)
@@ -1034,15 +1300,23 @@ public class ItemManager : MonoBehaviour
         if(direction == 1)//forward
         {
             yield return new WaitForSeconds(0.1f);
-            item_gameobjects[1].SetActive(false);
-            clone = Instantiate(banana, BananaSpawnPos.position, BananaSpawnPos.rotation);
+            DeactivateHeldVisual("Banana");
+            clone = InstantiateItemPrefab("Banana", bananaPrefab, BananaSpawnPos.position, BananaSpawnPos.rotation);
+            if (clone == null)
+            {
+                yield break;
+            }
             clone.GetComponent<Banana>().Banana_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 200);
             clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
         }
         else
         {
             yield return new WaitForSeconds(0.25f);
-            clone = Instantiate(banana, backshellPos.position, BananaSpawnPos.rotation);
+            clone = InstantiateItemPrefab("Banana", bananaPrefab, backshellPos.position, BananaSpawnPos.rotation);
+            if (clone == null)
+            {
+                yield break;
+            }
             clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
             for (int i = 0; i < 75; i++)
             {
@@ -1053,7 +1327,7 @@ public class ItemManager : MonoBehaviour
                 }
                 yield return new WaitForSeconds(0.01f);
             }
-            item_gameobjects[1].SetActive(false);
+            DeactivateHeldVisual("Banana");
             if (!StarPowerUp)
             {
                 player_script.current_face_material = player_script.faces[2]; //blink
@@ -1072,9 +1346,13 @@ public class ItemManager : MonoBehaviour
     }
     IEnumerator UseCoin()
     {
-        GameObject clone = Instantiate(coin, coinSpawnPos.position, coinSpawnPos.rotation);
+        GameObject clone = InstantiateItemPrefab("Coin", coinPrefab, coinSpawnPos.position, coinSpawnPos.rotation);
+        if (clone == null)
+        {
+            yield break;
+        }
         clone.transform.SetParent(transform);
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         GetComponent<ScoreCount>().COINCOUNT+=2;
 
         yield return new WaitForSeconds(0.3f);
@@ -1087,7 +1365,7 @@ public class ItemManager : MonoBehaviour
         float volume = GameObject.FindGameObjectWithTag("CourseMusic").GetComponent<AudioSource>().volume;
         float volume2 = GameObject.FindGameObjectWithTag("CourseMusic").transform.parent.GetComponent<AudioSource>().volume;
 
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         StarPowerUp = true;
         for(int i = 0; i < playerRenderers.Length; i++)
         {
@@ -1134,7 +1412,7 @@ public class ItemManager : MonoBehaviour
     }
     IEnumerator UseBullet()
     {
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         isBullet = true;
         bulletPlayer.SetActive(true);
         for(int i = 0; i < playerRenderers.Length; i++)
@@ -1168,11 +1446,15 @@ public class ItemManager : MonoBehaviour
     IEnumerator useBlueShell()
     {
         yield return new WaitForSeconds(0.15f);
-        GameObject clone = Instantiate(BlueShell, shellSpawnPos.position, shellSpawnPos.transform.rotation);
+        GameObject clone = InstantiateItemPrefab("BlueShell", blueShellPrefab, shellSpawnPos.position, shellSpawnPos.transform.rotation);
+        if (clone == null)
+        {
+            yield break;
+        }
         clone.SetActive(true);
         clone.GetComponent<BlueShell>().current_node = currentWayPoint;
         clone.GetComponent<BlueShell>().AntiGravity = player_script.antiGravity;
-        item_gameobjects[item_index].SetActive(false); //hand shell
+        DeactivateHeldVisual(item_index);
         clone.GetComponent<BlueShell>().who_threw_shell = gameObject.name;
     }
 
@@ -1206,52 +1488,21 @@ public class ItemManager : MonoBehaviour
     
     private int ResolveDebugItemIndex(DebugItemSelection selection)
     {
-        if (item_gameobjects == null)
-        {
-            return -1;
-        }
-
         string targetName = GetDebugItemName(selection);
-        if (string.IsNullOrEmpty(targetName))
+        if (!string.IsNullOrEmpty(targetName))
         {
-            return -1;
+            int directIndex = GetItemIndex(targetName);
+            if (directIndex != -1)
+            {
+                return directIndex;
         }
 
         string sanitizedTarget = SanitizeName(targetName);
-        int fallbackIndex = -1;
-
-        for (int i = 0; i < item_gameobjects.Length; i++)
-        {
-            var obj = item_gameobjects[i];
-            if (obj == null)
+            int sanitizedIndex = FindIndexBySanitizedName(sanitizedTarget);
+            if (sanitizedIndex != -1)
             {
-                continue;
+                return sanitizedIndex;
             }
-
-            string objectName = obj.name;
-            if (string.Equals(objectName, targetName, System.StringComparison.Ordinal))
-            {
-                return i;
-            }
-
-            if (fallbackIndex == -1)
-            {
-                string sanitizedObject = SanitizeName(objectName);
-                if (!string.IsNullOrEmpty(sanitizedObject) && !string.IsNullOrEmpty(sanitizedTarget))
-                {
-                    if (sanitizedObject == sanitizedTarget ||
-                        sanitizedObject.Contains(sanitizedTarget) ||
-                        sanitizedTarget.Contains(sanitizedObject))
-                    {
-                        fallbackIndex = i;
-                    }
-                }
-            }
-        }
-
-        if (fallbackIndex != -1)
-        {
-            return fallbackIndex;
         }
 
         int keywordIndex = ResolveDebugItemIndexByKeywords(selection);
@@ -1260,13 +1511,6 @@ public class ItemManager : MonoBehaviour
             return keywordIndex;
         }
 
-        int referenceIndex = ResolveDebugItemIndexFromReference(selection);
-        if (referenceIndex != -1)
-        {
-            return referenceIndex;
-        }
-
-        LogBobombDebug($"Debug item '{targetName}' could not be matched to item array, even after keyword/reference fallbacks.");
         return -1;
     }
 
@@ -1345,51 +1589,9 @@ public class ItemManager : MonoBehaviour
         }
     }
 
-    private int ResolveDebugItemIndexFromReference(DebugItemSelection itemSelection)
-    {
-        switch (itemSelection)
-        {
-            case DebugItemSelection.GreenShell:
-            case DebugItemSelection.TripleGreenShells:
-                return FindIndexByReference(shell);
-            case DebugItemSelection.RedShell:
-            case DebugItemSelection.TripleRedShells:
-                return FindIndexByReference(redShell);
-            case DebugItemSelection.Banana:
-            case DebugItemSelection.TripleBananas:
-                return FindIndexByReference(banana);
-            case DebugItemSelection.Coin:
-                return FindIndexByReference(coin);
-            case DebugItemSelection.BobombHold:
-                return FindIndexByReference(bobomb);
-            case DebugItemSelection.BlueShell:
-                return FindIndexByReference(BlueShell);
-            default:
-                return -1;
-        }
-    }
-
-    private int FindIndexByReference(GameObject reference)
-    {
-        if (reference == null || item_gameobjects == null)
-        {
-            return -1;
-        }
-
-        for (int i = 0; i < item_gameobjects.Length; i++)
-        {
-            if (item_gameobjects[i] == reference)
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
     private int FindIndexByKeywords(params string[] keywords)
     {
-        if (keywords == null || keywords.Length == 0 || item_gameobjects == null)
+        if (keywords == null || keywords.Length == 0 || itemNames == null)
         {
             return -1;
         }
@@ -1400,15 +1602,24 @@ public class ItemManager : MonoBehaviour
             sanitizedKeywords[k] = SanitizeName(keywords[k]);
         }
 
-        for (int i = 0; i < item_gameobjects.Length; i++)
+        for (int i = 0; i < itemNames.Length; i++)
+        {
+            string candidate = itemNames[i];
+            if (string.IsNullOrEmpty(candidate) && item_gameobjects != null && i < item_gameobjects.Length)
         {
             var obj = item_gameobjects[i];
-            if (obj == null)
+                if (obj != null)
+                {
+                    candidate = obj.name;
+                }
+            }
+
+            if (string.IsNullOrEmpty(candidate))
             {
                 continue;
             }
 
-            string sanitizedObject = SanitizeName(obj.name);
+            string sanitizedObject = SanitizeName(candidate);
             if (string.IsNullOrEmpty(sanitizedObject))
             {
                 continue;
@@ -1438,6 +1649,45 @@ public class ItemManager : MonoBehaviour
         return -1;
     }
 
+    private int FindIndexBySanitizedName(string sanitizedName)
+    {
+        if (string.IsNullOrEmpty(sanitizedName))
+        {
+            return -1;
+        }
+
+        if (itemNames != null)
+        {
+            for (int i = 0; i < itemNames.Length; i++)
+            {
+                string name = itemNames[i];
+                if (!string.IsNullOrEmpty(name) && SanitizeName(name) == sanitizedName)
+                {
+                    return i;
+                }
+            }
+        }
+
+        if (item_gameobjects != null)
+        {
+            for (int i = 0; i < item_gameobjects.Length; i++)
+            {
+                var obj = item_gameobjects[i];
+                if (obj == null)
+                {
+                    continue;
+                }
+
+                if (SanitizeName(obj.name) == sanitizedName)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
     private string SanitizeName(string value)
     {
         if (string.IsNullOrEmpty(value))
@@ -1460,36 +1710,31 @@ public class ItemManager : MonoBehaviour
 
     private Sprite FindSpriteForItem(string itemName)
     {
-        if (items_possible == null || items_possible.Length == 0)
+        if (string.IsNullOrEmpty(itemName))
         {
             return null;
         }
 
-        string canonical = itemName ?? string.Empty;
-        string sanitizedName = SanitizeName(canonical);
-        if (string.IsNullOrEmpty(sanitizedName))
+        if (iconByName != null && iconByName.TryGetValue(itemName, out var directSprite) && directSprite != null)
         {
-            return null;
+            return directSprite;
         }
 
-        for (int i = 0; i < items_possible.Length; i++)
+        string sanitizedName = SanitizeName(itemName);
+        if (!string.IsNullOrEmpty(sanitizedName) &&
+            iconBySanitizedName != null &&
+            iconBySanitizedName.TryGetValue(sanitizedName, out var sanitizedSprite) &&
+            sanitizedSprite != null)
         {
-            var sprite = items_possible[i];
-            if (sprite == null)
-            {
-                continue;
-            }
+            return sanitizedSprite;
+        }
 
-            string sanitizedSprite = SanitizeName(sprite.name);
-            if (sanitizedSprite == sanitizedName)
+        if (TryEnsureCatalog())
+        {
+            Sprite catalogSprite = catalog.GetIcon(itemName);
+            if (catalogSprite != null)
             {
-                return sprite;
-            }
-
-            if (!string.IsNullOrEmpty(sanitizedSprite) &&
-                (sanitizedSprite.Contains(sanitizedName) || sanitizedName.Contains(sanitizedSprite)))
-            {
-                return sprite;
+                return catalogSprite;
             }
         }
  
@@ -1506,7 +1751,6 @@ public class ItemManager : MonoBehaviour
         int index = ResolveDebugItemIndex(selection);
         if (index < 0)
         {
-            LogBobombDebug($"Debug selection {selection} could not be matched to an item index.");
             return;
         }
 
@@ -1629,33 +1873,32 @@ public class ItemManager : MonoBehaviour
 
     private void StartBobombTrailing()
     {
-        LogBobombDebug($"StartBobombTrailing entered: bobombTrailingActive(before)={bobombTrailingActive}, currentItem={current_Item}, backshellPos={backshellPos.position}");
-
         bobombTrailingActive = true;
         player_script.Driver.SetBool("hasItem", false);
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
 
-        activeTrailingBobomb = Instantiate(bobomb, backshellPos.position, backshellPos.rotation, backshellPos);
-        LogBobombDebug($"Instantiated trailing Bobomb '{activeTrailingBobomb?.name}' at {backshellPos.position}");
+        activeTrailingBobomb = InstantiateItemPrefab("Bobomb-Hold", bobombPrefab, backshellPos.position, backshellPos.rotation, backshellPos);
+        if (activeTrailingBobomb == null)
+        {
+            bobombTrailingActive = false;
+            return;
+        }
+
         var bombScript = activeTrailingBobomb.GetComponent<Bobomb>();
         if (bombScript != null)
         {
             bombScript.whoThrewBomb = gameObject.name;
-            bombScript.BeginHeld(bobombHeldFuseDuration, OnBobombHeldExplosion);
-            LogBobombDebug($"BeginHeld invoked on Bobomb with fuse={bobombHeldFuseDuration}s");
+            bombScript.BeginHeld(OnBobombHeldExplosion);
         }
         else
         {
-            LogBobombDebug("Warning: trailing Bobomb missing Bobomb component");
         }
 
         CurrentTrailingItem = activeTrailingBobomb;
-        LogBobombDebug("StartBobombTrailing completed");
     }
 
     private void ReleaseBobombTrailing()
     {
-        LogBobombDebug($"ReleaseBobombTrailing entered: bobombTrailingActive(before)={bobombTrailingActive}, activeBomb={(activeTrailingBobomb != null ? activeTrailingBobomb.name : "null")}, kartForward={transform.forward}");
 
         bobombTrailingActive = false;
 
@@ -1665,7 +1908,6 @@ public class ItemManager : MonoBehaviour
             if (bombScript != null)
             {
                 bombScript.ReleaseHeldAsMine();
-                LogBobombDebug("ReleaseHeldAsMine called on trailing Bobomb");
             }
             ReleaseBobombAsMine(activeTrailingBobomb, -transform.forward);
             activeTrailingBobomb = null;
@@ -1675,12 +1917,10 @@ public class ItemManager : MonoBehaviour
         player_script.Driver.SetTrigger("ThrowBackward");
         used_Item_Done();
         current_Item = "";
-        LogBobombDebug("ReleaseBobombTrailing finished cleanup");
     }
 
     private void OnBobombHeldExplosion()
     {
-        LogBobombDebug("OnBobombHeldExplosion invoked (held fuse expired)");
         bobombTrailingActive = false;
 
         if (activeTrailingBobomb != null)
@@ -1692,20 +1932,17 @@ public class ItemManager : MonoBehaviour
         CurrentTrailingItem = null;
         used_Item_Done();
         current_Item = "";
-        LogBobombDebug("OnBobombHeldExplosion cleanup finished");
     }
 
     private void ReleaseBobombAsMine(GameObject bombObject, Vector3 forwardDirection)
     {
         if (bombObject == null)
         {
-            LogBobombDebug("ReleaseBobombAsMine called with null bombObject");
             return;
         }
 
         bombObject.transform.SetParent(null, true);
         bombObject.SetActive(true);
-        LogBobombDebug($"Bobomb released as mine at position={bombObject.transform.position}, forwardDirection={forwardDirection}");
 
         var rb = bombObject.GetComponent<Rigidbody>();
         if (rb != null)
@@ -1714,7 +1951,6 @@ public class ItemManager : MonoBehaviour
             rb.velocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             rb.AddForce(forwardDirection.normalized * 15f, ForceMode.VelocityChange);
-            LogBobombDebug($"Applied release impulse. Dir={forwardDirection.normalized}, magnitude=15, resultingVelocity={rb.velocity}");
         }
 
         var bombScript = bombObject.GetComponent<Bobomb>();
@@ -1722,7 +1958,6 @@ public class ItemManager : MonoBehaviour
         {
             bombScript.enabled = true;
             bombScript.whoThrewBomb = gameObject.name;
-            LogBobombDebug("Bobomb script re-enabled and whoThrewBomb set");
         }
 
         var audio = bombObject.GetComponent<AudioSource>();
@@ -1730,7 +1965,6 @@ public class ItemManager : MonoBehaviour
         {
             audio.enabled = true;
             audio.Play();
-            LogBobombDebug("Played Bobomb audio on release");
         }
     }
 }

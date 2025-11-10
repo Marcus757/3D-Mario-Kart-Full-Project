@@ -9,26 +9,6 @@ public class ItemManagerEditor : Editor
     private SerializedProperty definitionsProperty;
     private ReorderableList definitionsList;
 
-    private static readonly GUIContent[] FieldLabels =
-    {
-        new GUIContent("Item Selection"),
-        new GUIContent("Icon"),
-        new GUIContent("Prefab"),
-        new GUIContent("Hand Prefab"),
-        new GUIContent("Alternate Prefab"),
-        new GUIContent("Spawn Point")
-    };
-
-    private static readonly string[] FieldNames =
-    {
-        "debugSelection",
-        "icon",
-        "prefab",
-        "handPrefab",
-        "alternatePrefab",
-        "spawnPoint"
-    };
-
     private const float ExtraSpacing = 4f;
 
     private void OnEnable()
@@ -89,28 +69,7 @@ public class ItemManagerEditor : Editor
         }
 
         SerializedProperty element = definitionsProperty.GetArrayElementAtIndex(index);
-        float height = EditorGUIUtility.singleLineHeight + ExtraSpacing;
-
-        if (!element.isExpanded)
-        {
-            return height;
-        }
-
-        height += EditorGUIUtility.standardVerticalSpacing + ExtraSpacing;
-
-        for (int i = 0; i < FieldNames.Length; i++)
-        {
-            SerializedProperty child = element.FindPropertyRelative(FieldNames[i]);
-            if (child == null)
-            {
-                continue;
-            }
-
-            height += EditorGUI.GetPropertyHeight(child, true) + EditorGUIUtility.standardVerticalSpacing;
-        }
-
-        height += ExtraSpacing;
-        return height;
+        return EditorGUI.GetPropertyHeight(element, true) + ExtraSpacing;
     }
 
     private void DrawElement(Rect rect, int index, bool isActive, bool isFocused)
@@ -122,32 +81,9 @@ public class ItemManagerEditor : Editor
 
         SerializedProperty element = definitionsProperty.GetArrayElementAtIndex(index);
 
-        rect.height = EditorGUIUtility.singleLineHeight;
-        element.isExpanded = EditorGUI.Foldout(rect, element.isExpanded, $"Element {index}", true);
-
-        if (!element.isExpanded)
-        {
-            return;
-        }
-
-        EditorGUI.indentLevel++;
-        float y = rect.y + EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing + ExtraSpacing;
-
-        for (int i = 0; i < FieldNames.Length; i++)
-        {
-            SerializedProperty child = element.FindPropertyRelative(FieldNames[i]);
-            if (child == null)
-            {
-                continue;
-            }
-
-            float childHeight = EditorGUI.GetPropertyHeight(child, true);
-            Rect fieldRect = new Rect(rect.x, y, rect.width, childHeight);
-            EditorGUI.PropertyField(fieldRect, child, FieldLabels[i], true);
-            y += childHeight + EditorGUIUtility.standardVerticalSpacing;
-        }
-
-        EditorGUI.indentLevel--;
+        rect.height = EditorGUI.GetPropertyHeight(element, true);
+        rect = EditorGUI.IndentedRect(rect);
+        EditorGUI.PropertyField(rect, element, GUIContent.none, true);
     }
 }
 #endif
