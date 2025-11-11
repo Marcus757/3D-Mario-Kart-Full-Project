@@ -4832,7 +4832,6 @@ ParticleSystemRenderer:
   m_RendererPriority: 0
   m_Materials:
   - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
-  - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -9715,7 +9714,6 @@ ParticleSystemRenderer:
   m_RendererPriority: 0
   m_Materials:
   - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
-  - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -9832,8 +9830,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 468335106624062509}
   m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: -16888.93, y: 23258.86, z: -11889.39}
-  m_LocalScale: {x: 1.9, y: 1.9, z: 1.9}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 0.92290896, y: 0.92290896, z: 0.92290896}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 468335106445671187}
@@ -9853,15 +9851,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8ae96d04d49714842ad39209b735d049, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  myVelocity: {x: 0, y: 0, z: 0}
-  lifetime: 0
-  who_threw_shell: 
   mask:
     serializedVersion: 2
     m_Bits: 34858291
+  needsExtraDownForceAntigravity: 0
+  myVelocity: {x: 0, y: 0, z: 0}
+  lifetime: 0
+  who_threw_shell: 
   AntiGravity: 0
   velocityMagOriginal: 0
-  needsExtraDownForceAntigravity: 0
 --- !u!135 &468335106624062505
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -19531,7 +19529,6 @@ ParticleSystemRenderer:
   m_RendererPriority: 0
   m_Materials:
   - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
-  - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -24414,7 +24411,6 @@ ParticleSystemRenderer:
   m_RendererPriority: 0
   m_Materials:
   - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
-  - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -29296,7 +29292,6 @@ ParticleSystemRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
   - {fileID: 2100000, guid: e6c9dc401e53d5b4cab4b7e2d3ecb269, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0

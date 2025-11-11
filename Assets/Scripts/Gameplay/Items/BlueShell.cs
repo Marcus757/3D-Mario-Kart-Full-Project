@@ -251,8 +251,7 @@ public class BlueShell : MonoBehaviour
                 Vector3 angle = Vector3.Cross(transform.forward, myangle);
                 dir = Vector3.Dot(angle, transform.up);
 
-
-                float none = 0;
+                float none = 0f;
 
                 // maybe get dir, and make float y lerp to that dir value, and then rotate y axis (space.self) according to that y value or something
 
@@ -485,5 +484,4 @@ public class BlueShell : MonoBehaviour
             path = pathOption2;
         }
     }
-
 }

@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -15,6 +16,14 @@ public class ItemManager : MonoBehaviour
     private bool bobombTrailingActive;
     private GameObject activeTrailingBobomb;
     [SerializeField] private bool orbitingDebugLogging;
+
+    private Transform itemsRuntimeParent;
+    private readonly List<GreenShell> greenShellPool = new List<GreenShell>();
+    private GreenShell activeGreenShell;
+    [SerializeField, Tooltip("Duration in seconds before a held green shell begins trailing when the use button is held.")]
+    private float greenShellHoldToTrailTime = 0.25f;
+    private bool awaitingGreenShellHoldDecision;
+    private float greenShellHoldStartTime;
 
     [System.Serializable]
     private class DebugItemSettings
@@ -208,6 +217,7 @@ public class ItemManager : MonoBehaviour
         ClearRuntimeTrailingInstances();
         trailingVisuals.Clear();
         CurrentTrailingItem = null;
+        activeGreenShell = null;
 
         if (!TryEnsureCatalog())
         {
@@ -590,20 +600,40 @@ public class ItemManager : MonoBehaviour
             }
         }
 
+        ProcessGreenShellHold(useItemHeldNow);
         useItemHeldLastFrame = useItemHeldNow;
     }
 
     internal void StartTrailingItemIfNeeded(string canonicalName)
     {
-        if (string.IsNullOrEmpty(canonicalName))
+        if (IsGreenShellName(canonicalName))
+        {
+            GreenShell shell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : GetAvailableGreenShell();
+            if (shell != null)
+            {
+                shell.EnterTrailing(GetTrailingParent());
+                activeGreenShell = shell;
+                CurrentTrailingItem = shell.gameObject;
+            }
+
+            if (player_script != null && player_script.Driver != null)
+            {
+                player_script.Driver.SetBool("hasItem", false);
+            }
+            return;
+        }
+
+        if (trailingVisuals == null || !trailingVisuals.TryGetValue(canonicalName, out GameObject trailing) || trailing == null)
         {
             return;
         }
 
-        if (!trailingVisuals.TryGetValue(canonicalName, out GameObject trailing) || trailing == null)
+#if UNITY_EDITOR
+        if (trailing != null)
         {
-            return;
+            Debug.Log($"[ItemManager] Attempting to start trailing item {canonicalName} active {trailing.activeSelf} localPos {trailing.transform.localPosition} worldPos {trailing.transform.position}", trailing);
         }
+#endif
 
         if (CurrentTrailingItem == trailing && trailing.activeSelf)
         {
@@ -634,39 +664,96 @@ public class ItemManager : MonoBehaviour
         }
     }
 
-    internal void HandleGreenShellRelease(bool aimBackwardHeld)
+    internal void HandleGreenShellUsePressed(bool aimBackwardHeld)
     {
-        if (!current_Item.Equals("GreenShell"))
+        if (!IsGreenShellName(current_Item))
         {
             return;
         }
 
         if (aimBackwardHeld)
         {
-            CleanupTrailingItem();
-            ActivateHeldVisual("GreenShell");
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowBackward");
-            }
-            StartCoroutine(spawnShell(backshellPos, -1));
-            if (!StarPowerUp && player_script != null && player_script.faces != null && player_script.faces.Length > 1)
-            {
-                player_script.current_face_material = player_script.faces[1];
-            }
-        }
-        else
-        {
-            CleanupTrailingItem();
-            ActivateHeldVisual("GreenShell");
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
-            }
-            StartCoroutine(spawnShell(shellSpawnPos, 1));
+            awaitingGreenShellHoldDecision = false;
+            return;
         }
 
-        current_Item = "";
+        awaitingGreenShellHoldDecision = true;
+        greenShellHoldStartTime = Time.time;
+    }
+
+    internal void HandleGreenShellRelease(bool aimBackwardHeld)
+    {
+        if (!IsGreenShellName(current_Item))
+        {
+            return;
+        }
+
+        awaitingGreenShellHoldDecision = false;
+
+        GreenShell shell = activeGreenShell != null ? activeGreenShell : GetAvailableGreenShell();
+        if (shell == null)
+        {
+            Debug.LogWarning("[ItemManager] Green shell instance unavailable during launch.", this);
+            return;
+        }
+
+        Transform spawnTransform = aimBackwardHeld ? backshellPos : shellSpawnPos;
+        Vector3 spawnPosition = spawnTransform != null ? spawnTransform.position : transform.position;
+        Quaternion spawnRotation = spawnTransform != null ? spawnTransform.rotation : transform.rotation;
+
+        CapsuleCollider playerCollider = GetComponent<CapsuleCollider>();
+        if (playerCollider != null)
+        {
+            float directionSign = aimBackwardHeld ? -1f : 1f;
+            Vector3 forwardDir = transform.forward.normalized;
+            if (forwardDir.sqrMagnitude > Mathf.Epsilon)
+            {
+                float offsetDistance = playerCollider.radius + 0.5f;
+                Vector3 offset = forwardDir * directionSign * offsetDistance;
+                float heightOffset = (playerCollider.height * 0.5f) * Mathf.Clamp(forwardDir.y, -0.5f, 0.5f);
+                spawnPosition = playerCollider.bounds.center + offset + (Vector3.up * heightOffset);
+            }
+        }
+
+        Vector3 launchDirection = aimBackwardHeld ? -transform.forward : transform.forward;
+        float launchSpeed = aimBackwardHeld ? 3500f : 6000f;
+
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetTrigger(aimBackwardHeld ? "ThrowBackward" : "ThrowForward");
+        }
+
+        if (aimBackwardHeld)
+        {
+            StartCoroutine(HandleBackwardThrowFaces());
+        }
+
+        GreenShell heldShell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : null;
+
+        CleanupTrailingItem();
+
+        if (heldShell != null)
+        {
+            heldShell.ReturnToPool();
+            if (heldShell == activeGreenShell)
+            {
+                activeGreenShell = null;
+            }
+        }
+
+        GameObject projectileObject = InstantiateItemPrefab("GreenShell", greenShellPrefab, spawnPosition, spawnRotation);
+        if (projectileObject != null)
+        {
+            GreenShell projectileShell = projectileObject.GetComponent<GreenShell>();
+            if (projectileShell != null)
+            {
+                projectileShell.LaunchStandalone(spawnPosition, spawnRotation, launchDirection, launchSpeed, player_script != null && player_script.antiGravity, gameObject.name);
+            }
+        }
+
+        CurrentTrailingItem = null;
+        activeGreenShell = null;
+        current_Item = string.Empty;
         used_Item_Done();
     }
 
@@ -690,19 +777,19 @@ public class ItemManager : MonoBehaviour
             {
                 player_script.current_face_material = player_script.faces[1];
             }
-        }
-        else
-        {
+                            }
+                            else
+                            {
             CleanupTrailingItem();
             ActivateHeldVisual("RedShell");
             if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
+                    {
+                        player_script.Driver.SetTrigger("ThrowForward");
             }
             StartCoroutine(spawnRedShell(shellSpawnPos, 1));
         }
 
-        current_Item = "";
+                        current_Item = "";
         used_Item_Done();
     }
 
@@ -730,23 +817,37 @@ public class ItemManager : MonoBehaviour
         {
             CleanupTrailingItem();
             if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
-            }
+                    {
+                        player_script.Driver.SetTrigger("ThrowForward");
+                    }
             StartCoroutine(spawnBanana(1));
-        }
+                }
 
-        current_Item = "";
-        used_Item_Done();
+                        current_Item = "";
+                    used_Item_Done();
     }
 
     private void CleanupTrailingItem()
     {
-        if (CurrentTrailingItem != null)
+        if (CurrentTrailingItem == null)
         {
-            CurrentTrailingItem.SetActive(false);
-            CurrentTrailingItem = null;
+            return;
         }
+
+        GreenShell shellComponent = CurrentTrailingItem.GetComponent<GreenShell>();
+        if (shellComponent != null)
+        {
+            shellComponent.ReturnToPool();
+            if (shellComponent == activeGreenShell)
+            {
+                activeGreenShell = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        CurrentTrailingItem.SetActive(false);
+        CurrentTrailingItem = null;
     }
 
     private void ActivateHeldVisual(string canonicalName)
@@ -761,6 +862,16 @@ public class ItemManager : MonoBehaviour
     private void ClearCurrentItemVisuals()
     {
         CleanupTrailingItem();
+        activeGreenShell = null;
+
+        for (int i = 0; i < greenShellPool.Count; i++)
+        {
+            GreenShell shell = greenShellPool[i];
+            if (shell != null && shell.IsAvailable())
+            {
+                shell.ReturnToPool();
+            }
+        }
 
         if (item_gameobjects == null || item_gameobjects.Length == 0)
         {
@@ -773,23 +884,22 @@ public class ItemManager : MonoBehaviour
             if (obj == null)
             {
                 continue;
-            }
+        }
 
             if (IsTripleItem(obj.name))
-            {
+        {
                 ResetTripleChildren(obj);
-            }
+        }
 
             obj.SetActive(false);
         }
 
-        current_Item = "";
         tripleItemCount = 0;
         item_index = -1;
-    }
+        }
 
     private static void ResetTripleChildren(GameObject tripleObject)
-    {
+        {
         if (tripleObject == null)
         {
             return;
@@ -798,8 +908,8 @@ public class ItemManager : MonoBehaviour
         for (int i = 0; i < tripleObject.transform.childCount; i++)
         {
             tripleObject.transform.GetChild(i).gameObject.SetActive(true);
+            }
         }
-    }
 
     private static bool IsTripleItem(string itemName)
     {
@@ -830,7 +940,7 @@ public class ItemManager : MonoBehaviour
             }
             else
             {
-                StartCoroutine(spawnShell(backshellPos, -1));
+            StartCoroutine(spawnShell(backshellPos, -1));
             }
             if (!StarPowerUp)
             {
@@ -845,7 +955,7 @@ public class ItemManager : MonoBehaviour
             }
             else
             {
-                StartCoroutine(spawnShell(shellSpawnPos, 1));
+            StartCoroutine(spawnShell(shellSpawnPos, 1));
             }
         }
 
@@ -872,15 +982,15 @@ public class ItemManager : MonoBehaviour
         if (aimBackwardHeld)
         {
             StartCoroutine(spawnBanana(-1));
-            player_script.Driver.SetTrigger("ThrowBackward");
+                player_script.Driver.SetTrigger("ThrowBackward");
             if (!StarPowerUp)
             {
                 player_script.current_face_material = player_script.faces[1];
             }
         }
         else
-        {
-            player_script.Driver.SetTrigger("ThrowForward");
+            {
+                player_script.Driver.SetTrigger("ThrowForward");
             StartCoroutine(spawnBanana(1));
         }
 
@@ -999,8 +1109,8 @@ public class ItemManager : MonoBehaviour
         if (GoldenMushroomTimer < 0)
         {
             DeactivateHeldVisual(item_index);
-            current_Item = "";
-            used_Item_Done();
+        current_Item = "";
+        used_Item_Done();
             startMushroomTimer = false;
         }
     }
@@ -1121,12 +1231,28 @@ public class ItemManager : MonoBehaviour
         }
         
         GameObject heldVisual = GetHeldVisual(item_index);
-        if (heldVisual != null)
+        string selectedItemName = GetItemNameByIndex(item_index) ?? heldVisual?.name;
+
+        if (IsGreenShellName(selectedItemName))
+        {
+            if (heldVisual != null)
+            {
+                heldVisual.SetActive(false);
+            }
+
+            GreenShell shell = GetAvailableGreenShell();
+            if (shell != null)
+            {
+                shell.EnterHeld(heldItemParent != null ? heldItemParent : transform);
+                shell.gameObject.SetActive(true);
+                activeGreenShell = shell;
+            }
+        }
+        else if (heldVisual != null)
         {
             heldVisual.SetActive(true);
         }
 
-        string selectedItemName = GetItemNameByIndex(item_index) ?? heldVisual?.name;
         bool isTripleSelection = IsTripleItem(selectedItemName);
         bool treatAsTriple = isTripleSelection || (heldVisual != null && heldVisual.CompareTag("Non-Hold-Item"));
 
@@ -1155,9 +1281,8 @@ public class ItemManager : MonoBehaviour
     }
 
     //SPAWN FUNCTIONS
-    IEnumerator spawnShell(Transform position, int direction) //spawns a green shell when shot
+    IEnumerator spawnShell(Transform position, int direction)
     {
-
         yield return new WaitForSeconds(0.15f);
         GameObject clone = InstantiateItemPrefab("GreenShell", greenShellPrefab, position.position, position.rotation);
         if (clone == null)
@@ -1174,56 +1299,25 @@ public class ItemManager : MonoBehaviour
 
         greenShell.who_threw_shell = gameObject.name;
 
-        if (direction == 1) //backwards or forwards -1 and 1 respectively
+        if (direction == 1)
         {
             greenShell.myVelocity = transform.forward.normalized;
             greenShell.velocityMagOriginal = 6000;
             greenShell.AntiGravity = player_script.antiGravity;
             greenShell.lifetime = 0;
-
             yield return new WaitForSeconds(0.25f);
             DeactivateHeldVisual("GreenShell");
-
         }
-        
-        if (direction == -1)
+        else
         {
             greenShell.myVelocity = -transform.forward.normalized;
             greenShell.velocityMagOriginal = 3500;
             greenShell.AntiGravity = player_script.antiGravity;
-
-
-            
             yield return new WaitForSeconds(0.25f);
             DeactivateHeldVisual("GreenShell");
-            for (int i = 0; i < 75; i++)
-            {
-                if (!StarPowerUp)
-                {
-                    player_script.current_face_material = player_script.faces[1]; //look left
-                    player_script.SpecialFace = true;
-                }
-                yield return new WaitForSeconds(0.01f);
-            }
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[2]; //blink
-                player_script.SpecialFace = true;
-            }
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[0];//normal
-                player_script.SpecialFace = false;
-            }
         }
-        
-        
-
-
-
-
     }
+
     IEnumerator spawnRedShell(Transform position, int direction)
     {
         yield return new WaitForSeconds(0.15f);
@@ -1529,6 +1623,7 @@ public class ItemManager : MonoBehaviour
     {
         // For testing we keep the UI visible and skip the auto-refill.
         
+        awaitingGreenShellHoldDecision = false;
         player_script.hasitem = false;
         player_script.has_item_hold = false;
         item_decided = false;
@@ -2030,6 +2125,216 @@ public class ItemManager : MonoBehaviour
         {
             audio.enabled = true;
             audio.Play();
+        }
+    }
+
+    private Transform GetItemsParent()
+    {
+        if (itemsRuntimeParent != null)
+        {
+            if (heldItemParent != null && itemsRuntimeParent != heldItemParent)
+            {
+                itemsRuntimeParent = heldItemParent;
+                ReparentGreenShellPool(itemsRuntimeParent);
+#if UNITY_EDITOR
+                Debug.Log($"[ItemManager] Items parent switched to heldItemParent {itemsRuntimeParent.name}.", itemsRuntimeParent);
+#endif
+            }
+            return itemsRuntimeParent;
+        }
+
+        if (heldItemParent != null)
+        {
+            itemsRuntimeParent = heldItemParent;
+            ReparentGreenShellPool(itemsRuntimeParent);
+#if UNITY_EDITOR
+            Debug.Log($"[ItemManager] Using heldItemParent {itemsRuntimeParent.name} as items parent.", itemsRuntimeParent);
+#endif
+            return itemsRuntimeParent;
+        }
+
+        Transform existing = transform.Find("ItemsParent");
+        if (existing != null)
+        {
+            itemsRuntimeParent = existing;
+#if UNITY_EDITOR
+            Debug.Log($"[ItemManager] Found ItemsParent child {itemsRuntimeParent.name}.", itemsRuntimeParent);
+#endif
+            return itemsRuntimeParent;
+        }
+
+        itemsRuntimeParent = transform;
+        ReparentGreenShellPool(itemsRuntimeParent);
+#if UNITY_EDITOR
+        Debug.Log("[ItemManager] Falling back to kart transform for items parent.", this);
+#endif
+        return itemsRuntimeParent;
+    }
+
+    internal Transform GreenShellStorage => GetItemsParent();
+
+    private void ReparentGreenShellPool(Transform targetParent)
+    {
+        if (targetParent == null || greenShellPool == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < greenShellPool.Count; i++)
+        {
+            GreenShell shell = greenShellPool[i];
+            if (shell == null)
+            {
+                continue;
+            }
+
+            Transform shellTransform = shell.transform;
+            if (shellTransform.parent == targetParent)
+            {
+                continue;
+            }
+
+            shellTransform.SetParent(targetParent, false);
+            shellTransform.localPosition = Vector3.zero;
+            shellTransform.localRotation = Quaternion.identity;
+        }
+    }
+
+    private GreenShell GetAvailableGreenShell()
+    {
+        for (int i = 0; i < greenShellPool.Count; i++)
+        {
+            GreenShell shell = greenShellPool[i];
+            if (shell != null && shell.IsAvailable())
+            {
+                Transform storageParent = GetItemsParent();
+                if (shell.transform.parent == storageParent)
+                {
+                    shell.transform.localPosition = Vector3.zero;
+                    shell.transform.localRotation = Quaternion.identity;
+                }
+#if UNITY_EDITOR
+                Debug.Log($"[ItemManager] Reusing pooled green shell index {i} localPos {shell.transform.localPosition} worldPos {shell.transform.position}", shell);
+#endif
+                return shell;
+            }
+        }
+
+        if (greenShellPrefab == null)
+        {
+            Debug.LogWarning("[ItemManager] Green shell prefab not configured.", this);
+            return null;
+        }
+
+        Transform parent = GetItemsParent();
+        GameObject shellObject = Instantiate(greenShellPrefab, parent.position, parent.rotation, parent);
+        shellObject.transform.localPosition = Vector3.zero;
+        shellObject.transform.localRotation = Quaternion.identity;
+        GreenShell newShell = shellObject.GetComponent<GreenShell>();
+        if (newShell == null)
+        {
+            Debug.LogError("[ItemManager] Instantiated green shell is missing GreenShell component.", shellObject);
+            Destroy(shellObject);
+            return null;
+        }
+
+        newShell.Initialize(this);
+        greenShellPool.Add(newShell);
+#if UNITY_EDITOR
+        Debug.Log($"[ItemManager] Instantiated new green shell pool size {greenShellPool.Count} localPos {newShell.transform.localPosition} worldPos {newShell.transform.position}", newShell);
+#endif
+        return newShell;
+    }
+
+    private static bool IsGreenShellName(string itemName)
+    {
+        return !string.IsNullOrEmpty(itemName) && string.Equals(itemName, "GreenShell", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ProcessGreenShellHold(bool useItemHeldNow)
+    {
+        if (!awaitingGreenShellHoldDecision)
+        {
+            return;
+        }
+
+        if (!player_script.hasitem || !IsGreenShellName(current_Item))
+        {
+            awaitingGreenShellHoldDecision = false;
+            return;
+        }
+
+        if (!useItemHeldNow)
+        {
+            awaitingGreenShellHoldDecision = false;
+            return;
+        }
+
+        float elapsed = Time.time - greenShellHoldStartTime;
+        if (elapsed < greenShellHoldToTrailTime)
+        {
+            return;
+        }
+
+        awaitingGreenShellHoldDecision = false;
+#if UNITY_EDITOR
+        Debug.Log($"[ItemManager] Green shell hold threshold met after {elapsed:F3}s. Entering trailing state.", this);
+#endif
+        StartTrailingItemIfNeeded("GreenShell");
+    }
+
+    internal void OnGreenShellTrailingConsumed(GreenShell shell)
+    {
+        awaitingGreenShellHoldDecision = false;
+        if (shell != null)
+        {
+            shell.ReturnToPool();
+            if (shell == activeGreenShell)
+            {
+                activeGreenShell = null;
+            }
+        }
+
+        current_Item = string.Empty;
+        CurrentTrailingItem = null;
+        used_Item_Done();
+    }
+
+    internal void OnGreenShellReturned(GreenShell shell)
+    {
+        awaitingGreenShellHoldDecision = false;
+        if (shell == activeGreenShell)
+        {
+            activeGreenShell = null;
+        }
+    }
+
+    private IEnumerator HandleBackwardThrowFaces()
+    {
+        if (StarPowerUp || player_script == null || player_script.faces == null || player_script.faces.Length == 0)
+        {
+            yield break;
+        }
+
+        if (player_script.faces.Length > 1)
+        {
+            player_script.current_face_material = player_script.faces[1];
+            player_script.SpecialFace = true;
+        }
+
+        yield return new WaitForSeconds(0.75f);
+
+        if (player_script.faces.Length > 2)
+        {
+            player_script.current_face_material = player_script.faces[2];
+        }
+
+        yield return new WaitForSeconds(0.1f);
+
+        if (player_script.faces.Length > 0)
+        {
+            player_script.current_face_material = player_script.faces[0];
+            player_script.SpecialFace = false;
         }
     }
 }

@@ -1,3 +1,5 @@
+using System;
+
 public class ShellItemBehaviour : IItemBehaviour
 {
     private readonly string trailingItemName;
@@ -13,6 +15,12 @@ public class ShellItemBehaviour : IItemBehaviour
 
     public void OnUse(ItemContext context, bool aimBackwardHeld, bool useHeld, bool usePressedThisFrame)
     {
+        if (!isRedShell && string.Equals(trailingItemName, "GreenShell", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Manager.HandleGreenShellUsePressed(aimBackwardHeld);
+            return;
+        }
+
         if (!aimBackwardHeld)
         {
             context.Manager.StartTrailingItemIfNeeded(trailingItemName);
