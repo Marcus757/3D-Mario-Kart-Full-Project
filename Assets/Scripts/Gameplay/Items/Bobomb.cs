@@ -4,6 +4,14 @@ using System;
 
 public class Bobomb : MonoBehaviour
 {
+    private enum BobombState
+    {
+        Inactive,
+        Held,
+        Trailing,
+        Projectile
+    }
+
     [HideInInspector]
     public Rigidbody rb;
 
@@ -49,6 +57,14 @@ public class Bobomb : MonoBehaviour
 
     private float baselineThrowDistance = -1f;
 
+    // State machine
+    private BobombState currentState = BobombState.Inactive;
+    private IItemDriver ownerManager;
+    private Transform followParent;
+    private Vector3 initialLocalScale;
+    private bool managedByItemManager;
+    private Collider cachedCollider;
+
     // Held (drag) behaviour
     private bool isHeld;
     private bool heldFuseActive;
@@ -68,12 +84,27 @@ public class Bobomb : MonoBehaviour
         Debug.Log("[Bobomb] Throw calibration reset.");
     }
 
-    void Start()
+    void Awake()
     {
         rb = GetComponent<Rigidbody>();
-        renderers[1].material = regMat[1];
-        renderers[0].material = regMat[0];
+        cachedCollider = GetComponent<Collider>();
+        initialLocalScale = transform.localScale;
+        if (renderers != null && renderers.Length > 1 && regMat != null && regMat.Length > 1)
+        {
+            renderers[1].material = regMat[1];
+        }
+        if (renderers != null && renderers.Length > 0 && regMat != null && regMat.Length > 0)
+        {
+            renderers[0].material = regMat[0];
+        }
+    }
 
+    void Start()
+    {
+        if (!managedByItemManager)
+        {
+            currentState = BobombState.Projectile;
+        }
     }
 
     void Update()
@@ -90,12 +121,15 @@ public class Bobomb : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (isHeld)
+        if (currentState == BobombState.Held || currentState == BobombState.Trailing)
         {
             return;
         }
 
-        rb.AddRelativeForce(Vector3.down * 10000 * Time.deltaTime, ForceMode.Acceleration);
+        if (rb != null)
+        {
+            rb.AddRelativeForce(Vector3.down * 10000 * Time.deltaTime, ForceMode.Acceleration);
+        }
 
         if (landed)
         {
@@ -109,7 +143,319 @@ public class Bobomb : MonoBehaviour
 
         if (exploded)
         {
-            GetComponent<AudioSource>().Stop();
+            AudioSource audio = GetComponent<AudioSource>();
+            if (audio != null)
+            {
+                audio.Stop();
+            }
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (currentState == BobombState.Trailing && followParent != null)
+        {
+            transform.position = followParent.position;
+            transform.rotation = followParent.rotation;
+        }
+    }
+
+    public void Initialize(IItemDriver owner)
+    {
+        ownerManager = owner;
+        managedByItemManager = true;
+        EnterInactive();
+    }
+
+    public bool IsAvailable()
+    {
+        return currentState == BobombState.Inactive || currentState == BobombState.Held;
+    }
+
+    public void EnterHeld(Transform parent)
+    {
+        if (ownerManager == null)
+        {
+            return;
+        }
+
+        currentState = BobombState.Held;
+        followParent = null;
+        isHeld = true;
+        managedByItemManager = true;
+
+        gameObject.SetActive(true);
+        transform.SetParent(parent, false);
+        transform.localPosition = Vector3.zero;
+        transform.localRotation = Quaternion.identity;
+        transform.localScale = initialLocalScale;
+
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = false;
+        }
+
+        landed = false;
+        exploded = false;
+        bounce_count = 1;
+        heldFuseActive = false;
+        heldExplosionCallback = null;
+    }
+
+    public void EnterTrailing(Transform parent)
+    {
+        if (ownerManager == null)
+        {
+            return;
+        }
+
+        currentState = BobombState.Trailing;
+        followParent = parent;
+        isHeld = true;
+        managedByItemManager = true;
+
+        gameObject.SetActive(true);
+        transform.SetParent(parent, false);
+        transform.localPosition = Vector3.zero;
+        transform.localRotation = Quaternion.identity;
+        transform.localScale = initialLocalScale;
+
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = true;
+            cachedCollider.isTrigger = true;
+        }
+
+        BeginHeld(OnTrailingExplosion);
+    }
+
+    public void EnterProjectile(Vector3 position, Quaternion rotation, float extraForward, string ownerName)
+    {
+        currentState = BobombState.Projectile;
+        managedByItemManager = false;
+        followParent = null;
+        isHeld = false;
+        heldFuseActive = false;
+        heldExplosionCallback = null;
+
+        gameObject.SetActive(true);
+        transform.SetParent(null);
+        transform.SetPositionAndRotation(position, rotation);
+        transform.localScale = initialLocalScale;
+
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = true;
+            cachedCollider.isTrigger = false;
+        }
+
+        whoThrewBomb = ownerName;
+        landed = false;
+        exploded = false;
+        bounce_count = 1;
+        countDownColor = false;
+
+        if (renderers != null)
+        {
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                {
+                    renderers[i].enabled = true;
+                }
+            }
+        }
+
+        if (spark != null)
+        {
+            for (int i = 0; i < spark.Length; i++)
+            {
+                if (spark[i] != null)
+                {
+                    spark[i].SetActive(true);
+                }
+            }
+        }
+
+        AudioSource audio = GetComponent<AudioSource>();
+        if (audio != null)
+        {
+            audio.enabled = true;
+            audio.Play();
+        }
+
+        bomb_thrown(extraForward);
+    }
+
+    public void EnterMine(Vector3 position, Quaternion rotation, string ownerName)
+    {
+        currentState = BobombState.Projectile;
+        managedByItemManager = false;
+        followParent = null;
+        isHeld = false;
+        heldFuseActive = false;
+        heldExplosionCallback = null;
+
+        gameObject.SetActive(true);
+        transform.SetParent(null);
+        transform.SetPositionAndRotation(position, rotation);
+        transform.localScale = initialLocalScale;
+
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+        }
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = true;
+            cachedCollider.isTrigger = false;
+        }
+
+        whoThrewBomb = ownerName;
+        bounce_count = 4;
+        landed = false;
+        exploded = false;
+        countDownColor = false;
+
+        if (renderers != null)
+        {
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                {
+                    renderers[i].enabled = true;
+                }
+            }
+        }
+
+        if (spark != null)
+        {
+            for (int i = 0; i < spark.Length; i++)
+            {
+                if (spark[i] != null)
+                {
+                    spark[i].SetActive(true);
+                }
+            }
+        }
+
+        AudioSource audio = GetComponent<AudioSource>();
+        if (audio != null)
+        {
+            audio.enabled = true;
+            audio.Play();
+        }
+    }
+
+    public void EnterInactive()
+    {
+        currentState = BobombState.Inactive;
+        followParent = null;
+        isHeld = false;
+        heldFuseActive = false;
+        heldExplosionCallback = null;
+        lifetime = 0f;
+        landed = false;
+        exploded = false;
+        bounce_count = 1;
+        countDownColor = false;
+
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        if (cachedCollider != null)
+        {
+            cachedCollider.enabled = false;
+        }
+
+        Transform storageParent = null;
+        if (ownerManager != null)
+        {
+            ItemManager itemMgr = ownerManager as ItemManager;
+            if (itemMgr != null) storageParent = itemMgr.GreenShellStorage;
+        }
+        if (storageParent != null)
+        {
+            transform.SetParent(storageParent, false);
+            transform.localPosition = Vector3.zero;
+            transform.localRotation = Quaternion.identity;
+            transform.localScale = initialLocalScale;
+        }
+
+        if (managedByItemManager)
+        {
+            gameObject.SetActive(false);
+        }
+    }
+
+    public void ReturnToPool()
+    {
+        EnterInactive();
+    }
+
+    public void DetachFromParent()
+    {
+        followParent = null;
+        transform.SetParent(null);
+    }
+
+    private void OnTrailingExplosion()
+    {
+        if (ownerManager != null)
+        {
+            ItemManager itemMgr = ownerManager as ItemManager;
+            if (itemMgr != null)
+            {
+                itemMgr.OnBobombTrailingExploded(this);
+            }
         }
     }
 
@@ -137,8 +483,11 @@ public class Bobomb : MonoBehaviour
             }
         }
 
-        rb.AddForce(transform.up * verticalImpulse, ForceMode.Impulse);
-        rb.AddForce(-transform.forward * forwardImpulse, ForceMode.Impulse);
+        if (rb != null)
+        {
+            rb.AddForce(transform.up * verticalImpulse, ForceMode.Impulse);
+            rb.AddForce(-transform.forward * forwardImpulse, ForceMode.Impulse);
+        }
 
         throwStartPosition = transform.position;
         trackingDistance = true;
@@ -157,6 +506,11 @@ public class Bobomb : MonoBehaviour
 
     private IEnumerator OnCollisionEnter(Collision collision)
     {
+        if (currentState != BobombState.Projectile)
+        {
+            yield break;
+        }
+
         if (collision.gameObject.tag == "Ground" || collision.gameObject.tag == "Dirt")
         {
             groundNormalRotation();
@@ -165,7 +519,10 @@ public class Bobomb : MonoBehaviour
             if (bounce_count < 4)
             {
                 const float legacyScale = 1f / 60f;
-                rb.AddRelativeForce(transform.InverseTransformDirection(transform.up) * bounceForce / (bounce_count * 1.5f) * legacyScale, ForceMode.Impulse);
+                if (rb != null)
+                {
+                    rb.AddRelativeForce(transform.InverseTransformDirection(transform.up) * bounceForce / (bounce_count * 1.5f) * legacyScale, ForceMode.Impulse);
+                }
                 yield return new WaitForSeconds(0.01f);
                 bounce_count++;
             }
@@ -286,9 +643,15 @@ public class Bobomb : MonoBehaviour
     {
         while (!exploded)
         {
-            renderers[1].material = glowMat;
+            if (renderers != null && renderers.Length > 1 && glowMat != null)
+            {
+                renderers[1].material = glowMat;
+            }
             yield return new WaitForSeconds(0.2f);
-            renderers[1].material = regMat[1];
+            if (renderers != null && renderers.Length > 1 && regMat != null && regMat.Length > 1)
+            {
+                renderers[1].material = regMat[1];
+            }
             yield return new WaitForSeconds(0.2f);
         }
     }
@@ -315,7 +678,7 @@ public class Bobomb : MonoBehaviour
         StartCoroutine(explodeImmediately());
     }
 
-    public void BeginHeld(float fuseDuration, Action onHeldExplosion)
+    public void BeginHeld(Action onHeldExplosion)
     {
         if (rb == null)
         {
@@ -324,12 +687,15 @@ public class Bobomb : MonoBehaviour
 
         isHeld = true;
         heldFuseActive = true;
-        heldFuseTimer = fuseDuration;
+        heldFuseTimer = throwForceMultiplier > 1f ? 2f / throwForceMultiplier : 2f;
         heldExplosionCallback = onHeldExplosion;
 
-        rb.isKinematic = true;
-        rb.velocity = Vector3.zero;
-        rb.angularVelocity = Vector3.zero;
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
         landed = false;
         exploded = false;
         bounce_count = 1;
@@ -343,7 +709,10 @@ public class Bobomb : MonoBehaviour
         }
 
         isHeld = false;
-        rb.isKinematic = false;
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+        }
         transform.SetParent(null, true);
         bounce_count = 4;
         heldExplosionCallback = null;

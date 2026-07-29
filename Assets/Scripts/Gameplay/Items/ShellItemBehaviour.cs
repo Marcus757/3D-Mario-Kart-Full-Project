@@ -1,11 +1,13 @@
+using System;
+
 public class ShellItemBehaviour : IItemBehaviour
 {
-    private readonly int trailingIndex;
+    private readonly string trailingItemName;
     private readonly bool isRedShell;
 
-    public ShellItemBehaviour(int trailingIndex, bool isRedShell)
+    public ShellItemBehaviour(string trailingItemName, bool isRedShell)
     {
-        this.trailingIndex = trailingIndex;
+        this.trailingItemName = trailingItemName;
         this.isRedShell = isRedShell;
     }
 
@@ -13,9 +15,21 @@ public class ShellItemBehaviour : IItemBehaviour
 
     public void OnUse(ItemContext context, bool aimBackwardHeld, bool useHeld, bool usePressedThisFrame)
     {
+        if (!isRedShell && string.Equals(trailingItemName, "GreenShell", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Manager.HandleGreenShellUsePressed(aimBackwardHeld);
+            return;
+        }
+
+        if (isRedShell && string.Equals(trailingItemName, "RedShell", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Manager.HandleRedShellUsePressed(aimBackwardHeld);
+            return;
+        }
+
         if (!aimBackwardHeld)
         {
-            context.Manager.StartTrailingItemIfNeeded(trailingIndex);
+            context.Manager.StartTrailingItemIfNeeded(trailingItemName);
         }
     }
 

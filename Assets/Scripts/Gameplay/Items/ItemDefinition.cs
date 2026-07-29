@@ -11,6 +11,7 @@ public class ItemDefinition
     public GameObject handPrefab;
     [UnityEngine.Header("Optional References")]
     public GameObject alternatePrefab;
+    public GameObject trailingPrefab;
     public Transform spawnPoint;
 }
 

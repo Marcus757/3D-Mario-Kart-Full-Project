@@ -57,6 +57,92 @@ public class BlueShell : MonoBehaviour
     void Start()
     {
 
+        if (pathOption1 == null)
+        {
+            Transform ownerTransform = !string.IsNullOrEmpty(who_threw_shell) ? GameObject.Find(who_threw_shell)?.transform : null;
+            if (ownerTransform != null)
+            {
+                ItemManager itemManager = ownerTransform.GetComponent<ItemManager>();
+                if (itemManager != null)
+                {
+                    if (itemManager.path1 != null)
+                    {
+                        pathOption1 = itemManager.path1;
+                    }
+                    else if (itemManager.path != null)
+                    {
+                        pathOption1 = itemManager.path;
+                    }
+
+                    if (itemManager.path2 != null)
+                    {
+                        pathOption2 = itemManager.path2;
+                    }
+                }
+                else
+                {
+                    OpponentItemManager opponentManager = ownerTransform.GetComponent<OpponentItemManager>();
+                    if (opponentManager != null)
+                    {
+                        if (opponentManager.path != null)
+                        {
+                            pathOption1 = opponentManager.path;
+                        }
+
+                        if (opponentManager.path2 != null)
+                        {
+                            pathOption2 = opponentManager.path2;
+                        }
+                    }
+                }
+            }
+
+            if (pathOption1 == null)
+            {
+                Transform globalPaths = RACE_MANAGER.allPaths;
+                if (globalPaths != null)
+                {
+                    if (globalPaths.childCount > 0)
+                    {
+                        pathOption1 = globalPaths.GetChild(0);
+                    }
+                    else
+                    {
+                        pathOption1 = globalPaths;
+                    }
+                }
+
+                if (pathOption1 == null)
+                {
+                    GameObject legacy = GameObject.Find("ITEM PATHS");
+                    if (legacy != null)
+                    {
+                        pathOption1 = legacy.transform;
+                    }
+                }
+            }
+        }
+
+        if (pathOption2 == null)
+        {
+            if (pathOption1 != null && pathOption1.childCount > 1)
+            {
+                pathOption2 = pathOption1.GetChild(1);
+            }
+            else
+            {
+                Transform globalPaths = RACE_MANAGER.allPaths;
+                if (globalPaths != null && globalPaths.childCount > 1)
+                {
+                    pathOption2 = globalPaths.GetChild(1);
+                }
+                else
+                {
+                    pathOption2 = pathOption1;
+                }
+            }
+        }
+
         path = pathOption1;
 
 
@@ -165,8 +251,7 @@ public class BlueShell : MonoBehaviour
                 Vector3 angle = Vector3.Cross(transform.forward, myangle);
                 dir = Vector3.Dot(angle, transform.up);
 
-
-                float none = 0;
+                float none = 0f;
 
                 // maybe get dir, and make float y lerp to that dir value, and then rotate y axis (space.self) according to that y value or something
 
@@ -399,5 +484,4 @@ public class BlueShell : MonoBehaviour
             path = pathOption2;
         }
     }
-
 }

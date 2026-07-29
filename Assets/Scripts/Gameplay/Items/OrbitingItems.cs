@@ -4,56 +4,126 @@ using UnityEngine;
 
 public class OrbitingItems : MonoBehaviour
 {
-    string whoHasItems;
-    // Start is called before the first frame update
-    void Start()
+    [SerializeField]
+    private GameObject owner;
+
+    private string ownerName;
+    [SerializeField]
+    private bool enableDebugLogs;
+
+    private static bool globalDebugLogs;
+
+    public static void SetGlobalDebugLogging(bool enabled)
     {
-        whoHasItems = transform.parent.parent.parent.parent.gameObject.name;
+        globalDebugLogs = enabled;
     }
 
-    // Update is called once per frame
-    void Update()
+    private bool ShouldLog => enableDebugLogs || globalDebugLogs;
+
+    private void Awake()
     {
-        
+        if (owner == null)
+        {
+            owner = ResolveOwnerFromHierarchy();
+        }
+
+        ownerName = owner != null ? owner.name : null;
+
+        if (ShouldLog)
+        {
+            Debug.Log($"[OrbitingItems] Owner resolved to '{ownerName ?? "null"}' for '{name}'", this);
+        }
+    }
+
+    private void Update()
+    {
+        if (owner == null)
+        {
+            owner = ResolveOwnerFromHierarchy();
+            ownerName = owner != null ? owner.name : ownerName;
+        }
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if(other.gameObject.tag == "Opponent" && other.gameObject.name != whoHasItems)
+        if (owner == null)
         {
-            OpponentItemManager itemManage = other.gameObject.GetComponent<OpponentItemManager>();
-            //the person who has the items
-            GameObject itemOwner = GameObject.Find(whoHasItems);
-            if(itemOwner.tag == "Player")
+            if (ShouldLog)
             {
-                if (gameObject.tag == "Shell")
+                Debug.Log($"[OrbitingItems] No owner assigned, ignoring collision with '{other.name}'", this);
+            }
+            return;
+        }
+
+        if (other.gameObject == owner)
+        {
+            return;
+        }
+
+        ItemManager ownerItemManager = owner.GetComponent<ItemManager>();
+        OpponentItemManager ownerOpponentManager = owner.GetComponent<OpponentItemManager>();
+
+        if (ownerItemManager != null)
+        {
+        OpponentItemManager targetOpponent = other.GetComponent<OpponentItemManager>();
+        if (targetOpponent == null)
+        {
+            targetOpponent = other.GetComponentInParent<OpponentItemManager>();
+        }
+            if (targetOpponent != null)
+            {
+            if (ShouldLog)
+            {
+                Debug.Log($"[OrbitingItems] '{ownerName}' orbiting hit opponent '{other.name}'", this);
+            }
+                if (CompareTag("Shell"))
                 {
-                    itemManage.hitByShell();
+                    targetOpponent.hitByShell();
                 }
                 else
                 {
-                    itemManage.hitByBanana();
+                    targetOpponent.hitByBanana();
                 }
-                itemOwner.GetComponent<ItemManager>().tripleItemCount--;
-                    int item_index = itemOwner.GetComponent<ItemManager>().item_index;
-                    gameObject.SetActive(false); 
 
-                    if(itemOwner.GetComponent<ItemManager>().tripleItemCount < 1)
-                    {
-                        itemOwner.GetComponent<ItemManager>().item_gameobjects[item_index].SetActive(false);
-                        itemOwner.GetComponent<ItemManager>().item_gameobjects[item_index].transform.GetChild(0).gameObject.SetActive(true);
-                        itemOwner.GetComponent<ItemManager>().item_gameobjects[item_index].transform.GetChild(1).gameObject.SetActive(true);
-                        itemOwner.GetComponent<ItemManager>().item_gameobjects[item_index].transform.GetChild(2).gameObject.SetActive(true);
-                        itemOwner.GetComponent<ItemManager>().used_Item_Done();
-                    }
-                
+                ownerItemManager.HandleOrbitingItemConsumed(gameObject);
             }
-            else
-            {
+            return;
+        }
 
-            }
+        if (ownerOpponentManager != null)
+        {
+            // TODO: handle opponent-owned orbiting items if needed
         }
     }
 
+    public void SetOwner(GameObject ownerObject)
+    {
+        owner = ownerObject;
+        ownerName = owner != null ? owner.name : null;
+    }
 
+    private GameObject ResolveOwnerFromHierarchy()
+    {
+        Transform current = transform;
+        for (int i = 0; i < 6 && current != null; i++)
+        {
+            if (current.GetComponent<ItemManager>() != null || current.CompareTag("Player"))
+            {
+                return current.gameObject;
+            }
+
+            current = current.parent;
+        }
+
+        if (!string.IsNullOrEmpty(ownerName))
+        {
+            var candidate = GameObject.Find(ownerName);
+            if (candidate != null)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
 }

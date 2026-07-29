@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -6,28 +7,33 @@ using UnityEngine.UI;
 using UnityEngine.InputSystem;
 
 
-public class ItemManager : MonoBehaviour
+public class ItemManager : MonoBehaviour, IItemDriver
 {
     private ItemInputHandler input;
     private bool usePressedThisFrame;
     private bool useReleasedThisFrame;
     private bool useItemHeldLastFrame;
     private bool bobombTrailingActive;
-    private GameObject activeTrailingBobomb;
-    [SerializeField]
-    private float bobombHeldFuseDuration = 2f;
-    [SerializeField]
-    private bool bobombDebugLogging;
+    private Bobomb activeTrailingBobomb;
+    [SerializeField] private bool orbitingDebugLogging;
 
-    private void LogBobombDebug(string message)
-    {
-        if (!bobombDebugLogging)
-        {
-            return;
-        }
-
-        Debug.Log($"[BobombDebug][{name}] {message}");
-    }
+    private Transform itemsRuntimeParent;
+    private ItemService itemService;
+    
+    private GreenShell activeGreenShell;
+    [SerializeField, Tooltip("Duration in seconds before a held green shell begins trailing when the use button is held.")]
+    private float greenShellHoldToTrailTime = 0.25f;
+    private bool awaitingGreenShellHoldDecision;
+    private float greenShellHoldStartTime;
+    
+    private RedShell activeRedShell;
+    [SerializeField, Tooltip("Duration in seconds before a held red shell begins trailing when the use button is held.")]
+    private float redShellHoldToTrailTime = 0.25f;
+    private bool awaitingRedShellHoldDecision;
+    private float redShellHoldStartTime;
+    
+    private Banana activeBanana;
+    private Bobomb activeBobomb;
 
     [System.Serializable]
     private class DebugItemSettings
@@ -39,8 +45,8 @@ public class ItemManager : MonoBehaviour
     [SerializeField]
     private DebugItemSettings debugSettings = new DebugItemSettings();
 
-    private ItemDefinition[] itemDefinitions;
-
+    private ItemCatalog catalog;
+    private bool catalogNotFoundLogged;
     private DebugItemSelection lastDebugSelectedItem = DebugItemSelection.None;
     private int debugForcedItemIndex = -1;
     private Coroutine activeRoulette;
@@ -61,7 +67,52 @@ public class ItemManager : MonoBehaviour
     private void Awake()
     {
         input = new ItemInputHandler(new GameControls());
-        LogBobombDebug("Awake initialized GameControls instance");
+        itemService = ItemService.Instance;
+        if (!TryEnsureCatalog())
+        {
+            enabled = false;
+        }
+    }
+
+    // IItemDriver implementation
+    public Transform ForwardSpawn => shellSpawnPos != null ? shellSpawnPos : transform;
+    public Transform BackSpawn => backshellPos != null ? backshellPos : transform;
+    public Transform HeldParent => heldItemParent != null ? heldItemParent : transform;
+    public Transform TrailingParent => trailingItemParent != null ? trailingItemParent : (backshellPos != null ? backshellPos : transform);
+    public Transform ItemsStorage => GetItemsParent();
+    public int CurrentWaypoint => currentWayPoint;
+    public bool IsStarActive => StarPowerUp;
+    public bool IsAntiGravity => player_script != null && player_script.antiGravity;
+    public string DriverName => gameObject.name;
+    public GameObject DriverGameObject => gameObject;
+
+    public void TriggerThrowForward()
+    {
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetTrigger("ThrowForward");
+        }
+    }
+
+    public void TriggerThrowBackward()
+    {
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetTrigger("ThrowBackward");
+        }
+    }
+
+    public void SetHasItem(bool hasItem)
+    {
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetBool("hasItem", hasItem);
+        }
+    }
+
+    public Rigidbody GetRigidbody()
+    {
+        return GetComponent<Rigidbody>();
     }
     
     private void OnEnable()
@@ -69,7 +120,6 @@ public class ItemManager : MonoBehaviour
         input.UsePressed += HandleUsePressed;
         input.UseReleased += HandleUseReleased;
         input.Enable();
-        LogBobombDebug("Item controls enabled");
     }
     
     private void OnDisable()
@@ -77,7 +127,6 @@ public class ItemManager : MonoBehaviour
         input.UsePressed -= HandleUsePressed;
         input.UseReleased -= HandleUseReleased;
         input.Disable();
-        LogBobombDebug("Item controls disabled");
     }
 
     private void HandleUsePressed() => usePressedThisFrame = true;
@@ -88,7 +137,6 @@ public class ItemManager : MonoBehaviour
 
         if (bobombTrailingActive && current_Item.Equals("Bobomb-Hold"))
         {
-            LogBobombDebug("UseItem canceled while trailing; releasing immediately from release callback");
             ReleaseBobombTrailing();
         }
     }
@@ -101,17 +149,29 @@ public class ItemManager : MonoBehaviour
     public AudioSource PlaySelectsound;
     public AudioSource Selected;
 
-    public Sprite[] items_possible;
-    public GameObject[] item_gameobjects;
+    [SerializeField]
+    private Transform heldItemParent;
+    [SerializeField]
+    private Transform trailingItemParent;
+
+    private GameObject[] item_gameobjects;
+    private Sprite[] itemIcons;
+    private string[] itemNames;
+    private Dictionary<string, int> itemIndexByName;
+    private Dictionary<string, Sprite> iconByName;
+    private Dictionary<string, Sprite> iconBySanitizedName;
+    private readonly List<GameObject> runtimeHandInstances = new List<GameObject>();
+    private readonly List<GameObject> runtimeTrailingInstances = new List<GameObject>();
+
     public Image your_item;
 
-    [Header("ITEMS")]
-    public GameObject shell;
-    public GameObject redShell;
-    public GameObject banana;
-    public GameObject coin;
-    public GameObject bobomb;
-    public GameObject BlueShell;
+    [Header("ITEM PREFABS (Runtime)")]
+    private GameObject greenShellPrefab;
+    private GameObject redShellPrefab;
+    private GameObject bananaPrefab;
+    private GameObject coinPrefab;
+    private GameObject bobombPrefab;
+    private GameObject blueShellPrefab;
     public Transform shellSpawnPos;
     public Transform backshellPos; //also for bananas
     public Transform BananaSpawnPos;
@@ -151,8 +211,10 @@ public class ItemManager : MonoBehaviour
     public GameObject kart;
 
 
+    [HideInInspector]
     public GameObject CurrentTrailingItem;
-    public GameObject[] trailingItems;
+
+    private readonly Dictionary<string, GameObject> trailingVisuals = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
 
     public ParticleSystem coinSparkle;
 
@@ -168,11 +230,13 @@ public class ItemManager : MonoBehaviour
         playersounds = GetComponent<PlayerSounds>();
         hud = new ItemHudPresenter(ItemUI, your_item, PlaySelectsound, Selected);
         itemContext = new ItemContext(this, player_script, playersounds);
+        SyncItemsFromDefinitions();
+        OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
         itemBehaviours = new Dictionary<string, IItemBehaviour>
         {
-            { "GreenShell", new ShellItemBehaviour(0, false) },
-            { "RedShell", new ShellItemBehaviour(1, true) },
-            { "Banana", new BananaItemBehaviour(2) },
+            { "GreenShell", new ShellItemBehaviour("GreenShell", false) },
+            { "RedShell", new ShellItemBehaviour("RedShell", true) },
+            { "Banana", new BananaItemBehaviour("Banana") },
             { "TripleGreenShells", new TripleShellBehaviour(false) },
             { "TripleRedShells", new TripleShellBehaviour(true) },
             { "TripleBananas", new TripleBananaBehaviour() },
@@ -186,7 +250,8 @@ public class ItemManager : MonoBehaviour
             { "Bobomb-Hold", new BobombItemBehaviour() }
         };
         
-        LogBobombDebug("Start called, player and sound components cached");
+        OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
+
         if (debugSettings.selectedItem != DebugItemSelection.None)
         {
             lastDebugSelectedItem = debugSettings.selectedItem;
@@ -195,78 +260,334 @@ public class ItemManager : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    [ContextMenu("Sync Item Arrays From Definitions")]
+    [ContextMenu("Rebuild Item Cache From Definitions")]
+#endif
     public void SyncItemsFromDefinitions()
     {
-        if (itemDefinitions == null || itemDefinitions.Length == 0)
+        CleanupTrailingItem();
+        ClearRuntimeHandInstances();
+        ClearRuntimeTrailingInstances();
+        trailingVisuals.Clear();
+        CurrentTrailingItem = null;
+        activeGreenShell = null;
+        activeRedShell = null;
+        activeBanana = null;
+        activeBobomb = null;
+
+        if (!TryEnsureCatalog())
         {
+            item_gameobjects = System.Array.Empty<GameObject>();
+            itemIcons = System.Array.Empty<Sprite>();
+            itemNames = System.Array.Empty<string>();
+            itemIndexByName = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+            iconByName = new Dictionary<string, Sprite>(System.StringComparer.OrdinalIgnoreCase);
+            iconBySanitizedName = new Dictionary<string, Sprite>();
             return;
         }
 
-        // Resize items_possible array if needed
-        if (items_possible == null || items_possible.Length < itemDefinitions.Length)
+        int count = catalog.DefinitionCount;
+
+        item_gameobjects = count > 0 ? new GameObject[count] : System.Array.Empty<GameObject>();
+        itemIcons = count > 0 ? new Sprite[count] : System.Array.Empty<Sprite>();
+        itemNames = count > 0 ? new string[count] : System.Array.Empty<string>();
+        itemIndexByName = new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+        iconByName = new Dictionary<string, Sprite>(System.StringComparer.OrdinalIgnoreCase);
+        iconBySanitizedName = new Dictionary<string, Sprite>();
+
+        Transform parent = heldItemParent != null ? heldItemParent : transform;
+
+        for (int i = 0; i < count; i++)
         {
-            System.Array.Resize(ref items_possible, itemDefinitions.Length);
-        }
+            ItemDefinition definition = catalog.GetDefinition(i);
+            Sprite icon = catalog.GetIcon(i);
+            itemIcons[i] = icon;
 
-        for (int i = 0; i < itemDefinitions.Length; i++)
-        {
-            var def = itemDefinitions[i];
-            items_possible[i] = def != null ? def.icon : null;
-        }
+            string canonicalName = catalog.GetCanonicalName(definition);
+            itemNames[i] = canonicalName;
 
-        // Resize item_gameobjects array if needed
-        if (item_gameobjects == null || item_gameobjects.Length < itemDefinitions.Length)
-        {
-            System.Array.Resize(ref item_gameobjects, itemDefinitions.Length);
-        }
+            if (!string.IsNullOrEmpty(canonicalName))
+            {
+                if (!itemIndexByName.ContainsKey(canonicalName))
+                {
+                    itemIndexByName.Add(canonicalName, i);
+                }
+            }
 
-        for (int i = 0; i < itemDefinitions.Length; i++)
-        {
-            var def = itemDefinitions[i];
-            item_gameobjects[i] = def != null ? (def.handPrefab != null ? def.handPrefab : def.prefab) : null;
-        }
+            if (icon != null && !string.IsNullOrEmpty(canonicalName))
+            {
+                if (!iconByName.ContainsKey(canonicalName))
+                {
+                    iconByName.Add(canonicalName, icon);
+                }
 
-        shell = FindDefinitionPrefab(DebugItemSelection.GreenShell);
-        redShell = FindDefinitionPrefab(DebugItemSelection.RedShell);
-        banana = FindDefinitionPrefab(DebugItemSelection.Banana);
-        coin = FindDefinitionPrefab(DebugItemSelection.Coin);
-        bobomb = FindDefinitionPrefab(DebugItemSelection.BobombHold);
-        BlueShell = FindDefinitionPrefab(DebugItemSelection.BlueShell);
+                string sanitized = SanitizeName(canonicalName);
+                if (!string.IsNullOrEmpty(sanitized) && !iconBySanitizedName.ContainsKey(sanitized))
+                {
+                    iconBySanitizedName.Add(sanitized, icon);
+                }
+            }
 
-        // optional: directly assign single-item references when debugSelection matches
-        UnityEditor.EditorUtility.SetDirty(this);
-    }
-
-    private GameObject FindDefinitionPrefab(DebugItemSelection debugSelection)
-    {
-        if (itemDefinitions == null)
-        {
-            return null;
-        }
-
-        for (int i = 0; i < itemDefinitions.Length; i++)
-        {
-            var def = itemDefinitions[i];
-            if (def == null)
+            if (!Application.isPlaying || definition == null)
             {
                 continue;
             }
 
-            if (def.debugSelection == debugSelection)
+            GameObject instance = catalog.InstantiateHeldVisual(i, parent);
+            if (instance == null)
             {
-                return def.handPrefab != null ? def.handPrefab : def.prefab;
+                continue;
+            }
+
+            AssignOrbitingOwner(instance);
+            instance.SetActive(false);
+            item_gameobjects[i] = instance;
+            runtimeHandInstances.Add(instance);
+
+            if (!string.IsNullOrEmpty(canonicalName))
+            {
+                GameObject trailingInstance = catalog.InstantiateTrailingVisual(canonicalName, GetTrailingParent());
+                if (trailingInstance != null)
+                {
+                    AssignOrbitingOwner(trailingInstance);
+                    trailingInstance.SetActive(false);
+                    trailingVisuals[canonicalName] = trailingInstance;
+                    runtimeTrailingInstances.Add(trailingInstance);
+                }
             }
         }
 
-        return null;
+        CacheRuntimePrefabs();
+
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+#endif
+
+        OrbitingItems.SetGlobalDebugLogging(orbitingDebugLogging);
     }
 
-    [ContextMenu("Clear Legacy Item Arrays")]
+    private void ClearRuntimeHandInstances()
+    {
+        if (runtimeHandInstances == null || runtimeHandInstances.Count == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < runtimeHandInstances.Count; i++)
+        {
+            GameObject instance = runtimeHandInstances[i];
+            if (instance == null)
+            {
+                continue;
+            }
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                DestroyImmediate(instance);
+            }
+            else
+#endif
+            {
+                Destroy(instance);
+            }
+        }
+
+        runtimeHandInstances.Clear();
+    }
+
+    private void ClearRuntimeTrailingInstances()
+    {
+        if (runtimeTrailingInstances == null || runtimeTrailingInstances.Count == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < runtimeTrailingInstances.Count; i++)
+        {
+            GameObject instance = runtimeTrailingInstances[i];
+            if (instance == null)
+            {
+                continue;
+            }
+
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                DestroyImmediate(instance);
+            }
+            else
+#endif
+            {
+                Destroy(instance);
+            }
+        }
+
+        runtimeTrailingInstances.Clear();
+    }
+
+    private void AssignOrbitingOwner(GameObject root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        OrbitingItems[] orbitingItems = root.GetComponentsInChildren<OrbitingItems>(true);
+        for (int i = 0; i < orbitingItems.Length; i++)
+        {
+            orbitingItems[i].SetOwner(gameObject);
+        }
+    }
+
+    private Transform GetTrailingParent()
+    {
+        if (trailingItemParent != null)
+        {
+            return trailingItemParent;
+        }
+
+        if (backshellPos != null)
+        {
+            return backshellPos;
+        }
+
+        return transform;
+    }
+
+
+    private bool TryEnsureCatalog()
+    {
+        if (catalog != null)
+        {
+            catalog.Initialize();
+            catalogNotFoundLogged = false;
+            return true;
+        }
+
+        catalog = ItemCatalog.Instance;
+        if (catalog == null)
+        {
+            catalog = FindObjectOfType<ItemCatalog>(true);
+        }
+
+        if (catalog != null)
+        {
+            catalog.Initialize();
+            catalogNotFoundLogged = false;
+            return true;
+        }
+
+        if (!catalogNotFoundLogged)
+        {
+            Debug.LogError("ItemCatalog could not be found in the scene.", this);
+            catalogNotFoundLogged = true;
+        }
+
+        return false;
+    }
+
+    private void CacheRuntimePrefabs()
+    {
+        coinPrefab = GetPrefabFromDefinitions(DebugItemSelection.Coin);
+        blueShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.BlueShell);
+    }
+
+    private GameObject GetPrefabFromDefinitions(DebugItemSelection selection)
+    {
+        if (!TryEnsureCatalog())
+        {
+            return null;
+        }
+
+        return catalog.GetWorldPrefab(selection);
+    }
+
+    private GameObject GetHeldVisual(int index)
+    {
+        if (item_gameobjects == null || index < 0 || index >= item_gameobjects.Length)
+        {
+            return null;
+        }
+
+        return item_gameobjects[index];
+    }
+
+    private GameObject GetHeldVisual(string canonicalName)
+    {
+        return GetHeldVisual(GetItemIndex(canonicalName));
+    }
+
+    private int GetItemIndex(string canonicalName)
+    {
+        if (string.IsNullOrEmpty(canonicalName) || itemIndexByName == null)
+        {
+            return -1;
+        }
+
+        return itemIndexByName.TryGetValue(canonicalName, out int index) ? index : -1;
+    }
+
+    private string GetItemNameByIndex(int index)
+    {
+        if (itemNames == null || index < 0 || index >= itemNames.Length)
+        {
+            return null;
+        }
+
+        return itemNames[index];
+    }
+
+    private void DeactivateHeldVisual(int index)
+    {
+        GameObject visual = GetHeldVisual(index);
+        if (visual != null)
+        {
+            visual.SetActive(false);
+        }
+    }
+
+    private void DeactivateHeldVisual(string canonicalName)
+    {
+        DeactivateHeldVisual(GetItemIndex(canonicalName));
+    }
+
+    private GameObject InstantiateItemPrefab(string itemName, GameObject prefab, Vector3 position, Quaternion rotation, Transform parent = null)
+    {
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[ItemManager] Unable to spawn '{itemName}' because its prefab reference is missing.", this);
+            return null;
+        }
+
+        return parent != null
+            ? Instantiate(prefab, position, rotation, parent)
+            : Instantiate(prefab, position, rotation);
+    }
+
+    private ItemDefinition GetDefinitionByName(string canonicalName)
+    {
+        if (string.IsNullOrEmpty(canonicalName) || !TryEnsureCatalog())
+        {
+            return null;
+        }
+
+        return catalog.GetDefinition(canonicalName);
+    }
+
+#if UNITY_EDITOR
+    [ContextMenu("Clear Runtime Item Cache")]
     public void ClearLegacyItemArrays()
     {
-        items_possible = System.Array.Empty<Sprite>();
+        ClearRuntimeHandInstances();
         item_gameobjects = System.Array.Empty<GameObject>();
+        itemIcons = System.Array.Empty<Sprite>();
+        itemNames = System.Array.Empty<string>();
+        itemIndexByName = null;
+        iconByName = null;
+        iconBySanitizedName = null;
         UnityEditor.EditorUtility.SetDirty(this);
     }
 #endif
@@ -294,10 +615,6 @@ public class ItemManager : MonoBehaviour
             }
         }
  
-        if (bobombDebugLogging)
-        {
-            LogBobombDebug($"Inputs: AimBackwardHeld={input.AimBackwardHeld}, UseItemHeld={useItemHeldNow}, UseItemTriggered={useItemPressedThisFrame}, UseItemReleased={useItemReleasedThisFrame}, TrailingActive={bobombTrailingActive}");
-        }
 
         if (player_script.hasitem)  //player has collided with an itembox and needs an item
         {
@@ -334,21 +651,96 @@ public class ItemManager : MonoBehaviour
             }
         }
 
+        ProcessGreenShellHold(useItemHeldNow);
+        ProcessRedShellHold(useItemHeldNow);
         useItemHeldLastFrame = useItemHeldNow;
     }
 
-    internal void StartTrailingItemIfNeeded(int trailingIndex)
+    internal void StartTrailingItemIfNeeded(string canonicalName)
     {
-        if (trailingItems == null || trailingIndex < 0 || trailingIndex >= trailingItems.Length)
+        if (IsGreenShellName(canonicalName))
+        {
+            GreenShell shell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : itemService.GetAvailableGreenShell(ItemsStorage);
+            if (shell != null)
+            {
+                shell.Initialize(this);
+                shell.EnterTrailing(GetTrailingParent());
+                activeGreenShell = shell;
+                CurrentTrailingItem = shell.gameObject;
+            }
+
+            SetHasItem(false);
+            return;
+        }
+
+        if (IsRedShellName(canonicalName))
+        {
+            RedShell shell = activeRedShell != null && activeRedShell.IsAvailable() ? activeRedShell : itemService.GetAvailableRedShell(ItemsStorage);
+            if (shell != null)
+            {
+                shell.Initialize(this);
+                shell.EnterTrailing(GetTrailingParent());
+                activeRedShell = shell;
+                CurrentTrailingItem = shell.gameObject;
+            }
+
+            SetHasItem(false);
+            return;
+        }
+
+        if (string.Equals(canonicalName, "Banana", System.StringComparison.OrdinalIgnoreCase))
+        {
+            Banana banana = activeBanana != null && activeBanana.IsAvailable() ? activeBanana : itemService.GetAvailableBanana(ItemsStorage);
+            if (banana != null)
+            {
+                banana.Initialize(this);
+                banana.EnterTrailing(GetTrailingParent());
+                activeBanana = banana;
+                CurrentTrailingItem = banana.gameObject;
+            }
+
+            SetHasItem(false);
+            GameObject heldItem = GetHeldVisual(canonicalName);
+            if (heldItem != null)
+            {
+                heldItem.SetActive(false);
+            }
+            return;
+        }
+
+        if (string.Equals(canonicalName, "Bobomb-Hold", System.StringComparison.OrdinalIgnoreCase))
+        {
+            Bobomb bobomb = activeBobomb != null && activeBobomb.IsAvailable() ? activeBobomb : itemService.GetAvailableBobomb(ItemsStorage);
+            if (bobomb != null)
+            {
+                bobomb.Initialize(this);
+                bobomb.EnterTrailing(GetTrailingParent());
+                activeBobomb = bobomb;
+                activeTrailingBobomb = bobomb;
+                CurrentTrailingItem = bobomb.gameObject;
+                bobombTrailingActive = true;
+            }
+
+            SetHasItem(false);
+            GameObject heldItem = GetHeldVisual(canonicalName);
+            if (heldItem != null)
+            {
+                heldItem.SetActive(false);
+            }
+            return;
+        }
+
+        if (trailingVisuals == null || !trailingVisuals.TryGetValue(canonicalName, out GameObject trailing) || trailing == null)
         {
             return;
         }
 
-        GameObject trailing = trailingItems[trailingIndex];
-        if (trailing == null)
+#if UNITY_EDITOR
+        if (trailing != null)
         {
-            return;
+            Debug.Log($"[ItemManager] Attempting to start trailing item {canonicalName} active {trailing.activeSelf} localPos {trailing.transform.localPosition} worldPos {trailing.transform.position}", trailing);
         }
+#endif
 
         if (CurrentTrailingItem == trailing && trailing.activeSelf)
         {
@@ -362,149 +754,302 @@ public class ItemManager : MonoBehaviour
 
         CurrentTrailingItem = trailing;
 
-        if (player_script != null && player_script.Driver != null)
-        {
-            player_script.Driver.SetBool("hasItem", false);
-        }
+        SetHasItem(false);
 
         if (!trailing.activeSelf)
         {
             trailing.SetActive(true);
         }
 
-        if (item_gameobjects != null && item_index >= 0 && item_index < item_gameobjects.Length)
+        GameObject heldItem = GetHeldVisual(canonicalName);
+        if (heldItem != null)
         {
-            GameObject heldItem = item_gameobjects[item_index];
-            if (heldItem != null)
-            {
-                heldItem.SetActive(false);
-            }
+            heldItem.SetActive(false);
         }
     }
 
-    internal void HandleGreenShellRelease(bool aimBackwardHeld)
+    internal void HandleGreenShellUsePressed(bool aimBackwardHeld)
     {
-        if (!current_Item.Equals("GreenShell"))
+        if (!IsGreenShellName(current_Item))
         {
             return;
         }
 
         if (aimBackwardHeld)
         {
-            CleanupTrailingItem();
-            ActivateItemGameObject(2);
-            if (player_script != null && player_script.Driver != null)
+            awaitingGreenShellHoldDecision = false;
+            return;
+        }
+
+        awaitingGreenShellHoldDecision = true;
+        greenShellHoldStartTime = Time.time;
+    }
+
+    internal void HandleRedShellUsePressed(bool aimBackwardHeld)
+    {
+        if (!IsRedShellName(current_Item))
+        {
+            return;
+        }
+
+        if (aimBackwardHeld)
+        {
+            awaitingRedShellHoldDecision = false;
+            return;
+        }
+
+        awaitingRedShellHoldDecision = true;
+        redShellHoldStartTime = Time.time;
+    }
+
+    internal void HandleGreenShellRelease(bool aimBackwardHeld)
+    {
+        if (!IsGreenShellName(current_Item))
+        {
+            return;
+        }
+
+        awaitingGreenShellHoldDecision = false;
+
+        GreenShell shell = activeGreenShell != null ? activeGreenShell : itemService.GetAvailableGreenShell(ItemsStorage);
+        if (shell == null)
+        {
+            Debug.LogWarning("[ItemManager] Green shell instance unavailable during launch.", this);
+            return;
+        }
+
+        Transform spawnTransform = aimBackwardHeld ? BackSpawn : ForwardSpawn;
+        Vector3 spawnPosition = spawnTransform.position;
+        Quaternion spawnRotation = spawnTransform.rotation;
+
+        CapsuleCollider playerCollider = GetComponent<CapsuleCollider>();
+        if (playerCollider != null)
+        {
+            float directionSign = aimBackwardHeld ? -1f : 1f;
+            Vector3 forwardDir = transform.forward.normalized;
+            if (forwardDir.sqrMagnitude > Mathf.Epsilon)
             {
-                player_script.Driver.SetTrigger("ThrowBackward");
+                float offsetDistance = playerCollider.radius + 0.5f;
+                Vector3 offset = forwardDir * directionSign * offsetDistance;
+                float heightOffset = (playerCollider.height * 0.5f) * Mathf.Clamp(forwardDir.y, -0.5f, 0.5f);
+                spawnPosition = playerCollider.bounds.center + offset + (Vector3.up * heightOffset);
             }
-            StartCoroutine(spawnShell(backshellPos, -1));
-            if (!StarPowerUp && player_script != null && player_script.faces != null && player_script.faces.Length > 1)
-            {
-                player_script.current_face_material = player_script.faces[1];
-            }
+        }
+
+        float launchSpeed = aimBackwardHeld ? 3500f : 6000f;
+
+        if (aimBackwardHeld)
+        {
+            TriggerThrowBackward();
+            StartCoroutine(HandleBackwardThrowFaces());
         }
         else
         {
-            CleanupTrailingItem();
-            ActivateItemGameObject(2);
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
-            }
-            StartCoroutine(spawnShell(shellSpawnPos, 1));
+            TriggerThrowForward();
         }
 
-        current_Item = "";
+        GreenShell heldShell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : null;
+
+        CleanupTrailingItem();
+
+        if (heldShell != null)
+        {
+            heldShell.ReturnToPool();
+            if (heldShell == activeGreenShell)
+            {
+                activeGreenShell = null;
+            }
+        }
+
+        if (aimBackwardHeld)
+        {
+            StartCoroutine(ItemLaunchers.LaunchGreenShellBackward(this, shell, spawnPosition, spawnRotation, launchSpeed));
+        }
+        else
+        {
+            StartCoroutine(ItemLaunchers.LaunchGreenShellForward(this, shell, spawnPosition, spawnRotation, launchSpeed));
+        }
+
+        CurrentTrailingItem = null;
+        activeGreenShell = null;
+        current_Item = string.Empty;
         used_Item_Done();
     }
 
     internal void HandleRedShellRelease(bool aimBackwardHeld)
     {
-        if (!current_Item.Equals("RedShell"))
+        if (!IsRedShellName(current_Item))
         {
             return;
         }
 
+        awaitingRedShellHoldDecision = false;
+
+        RedShell shell = activeRedShell != null ? activeRedShell : itemService.GetAvailableRedShell(ItemsStorage);
+        if (shell == null)
+        {
+            Debug.LogWarning("[ItemManager] Red shell instance unavailable during launch.", this);
+            return;
+        }
+
+        Transform spawnTransform = aimBackwardHeld ? BackSpawn : ForwardSpawn;
+        Vector3 spawnPosition = spawnTransform.position;
+        Quaternion spawnRotation = spawnTransform.rotation;
+
+        CapsuleCollider playerCollider = GetComponent<CapsuleCollider>();
+        if (playerCollider != null)
+        {
+            float directionSign = aimBackwardHeld ? -1f : 1f;
+            Vector3 forwardDir = transform.forward.normalized;
+            if (forwardDir.sqrMagnitude > Mathf.Epsilon)
+            {
+                float offsetDistance = playerCollider.radius + 0.5f;
+                Vector3 offset = forwardDir * directionSign * offsetDistance;
+                float heightOffset = (playerCollider.height * 0.5f) * Mathf.Clamp(forwardDir.y, -0.5f, 0.5f);
+                spawnPosition = playerCollider.bounds.center + offset + (Vector3.up * heightOffset);
+            }
+        }
+
         if (aimBackwardHeld)
         {
-            CleanupTrailingItem();
-            ActivateItemGameObject(4);
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowBackward");
-            }
-            StartCoroutine(spawnRedShell(backshellPos, -1));
-            if (!StarPowerUp && player_script != null && player_script.faces != null && player_script.faces.Length > 1)
-            {
-                player_script.current_face_material = player_script.faces[1];
-            }
+            TriggerThrowBackward();
+            StartCoroutine(HandleBackwardThrowFaces());
         }
         else
         {
-            CleanupTrailingItem();
-            ActivateItemGameObject(4);
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
-            }
-            StartCoroutine(spawnRedShell(shellSpawnPos, 1));
+            TriggerThrowForward();
         }
 
-        current_Item = "";
+        RedShell heldShell = activeRedShell != null && activeRedShell.IsAvailable() ? activeRedShell : null;
+
+        CleanupTrailingItem();
+
+        if (heldShell != null)
+        {
+            heldShell.ReturnToPool();
+            if (heldShell == activeRedShell)
+            {
+                activeRedShell = null;
+            }
+        }
+
+        if (aimBackwardHeld)
+        {
+            StartCoroutine(ItemLaunchers.LaunchRedShellBackward(this, shell, spawnPosition, spawnRotation));
+        }
+        else
+        {
+            shell.Initialize(this);
+            shell.EnterProjectile(spawnPosition, spawnRotation, currentWayPoint, IsAntiGravity, gameObject.name);
+        }
+
+        CurrentTrailingItem = null;
+        activeRedShell = null;
+        current_Item = string.Empty;
         used_Item_Done();
     }
 
     internal void HandleBananaRelease(bool aimBackwardHeld)
     {
-        if (!current_Item.Equals("Banana"))
+        if (!string.Equals(current_Item, "Banana", System.StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
+        Banana banana = activeBanana != null ? activeBanana : itemService.GetAvailableBanana(ItemsStorage);
+        if (banana == null)
+        {
+            Debug.LogWarning("[ItemManager] Banana instance unavailable during launch.", this);
+            return;
+        }
+
+        banana.Initialize(this);
+        banana.DetachFromParent();
+        CurrentTrailingItem = null;
+        activeBanana = null;
+
         if (aimBackwardHeld)
         {
-            StartCoroutine(spawnBanana(-1));
-            CleanupTrailingItem();
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowBackward");
-            }
-            if (!StarPowerUp && player_script != null && player_script.faces != null && player_script.faces.Length > 1)
-            {
-                player_script.current_face_material = player_script.faces[1];
-            }
+            TriggerThrowBackward();
+            StartCoroutine(ItemLaunchers.LaunchBananaBackward(this, banana, BackSpawn.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, false));
         }
         else
         {
-            CleanupTrailingItem();
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
-            }
-            StartCoroutine(spawnBanana(1));
+            TriggerThrowForward();
+            StartCoroutine(ItemLaunchers.LaunchBananaForward(this, banana, BananaSpawnPos != null ? BananaSpawnPos.position : transform.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, false));
         }
 
-        current_Item = "";
+        current_Item = string.Empty;
         used_Item_Done();
     }
 
     private void CleanupTrailingItem()
     {
-        if (CurrentTrailingItem != null)
-        {
-            CurrentTrailingItem.SetActive(false);
-            CurrentTrailingItem = null;
-        }
-    }
-
-    private void ActivateItemGameObject(int index)
-    {
-        if (item_gameobjects == null || index < 0 || index >= item_gameobjects.Length)
+        if (CurrentTrailingItem == null)
         {
             return;
         }
 
-        GameObject target = item_gameobjects[index];
+        GreenShell greenShellComponent = CurrentTrailingItem.GetComponent<GreenShell>();
+        if (greenShellComponent != null)
+        {
+            greenShellComponent.ReturnToPool();
+            if (greenShellComponent == activeGreenShell)
+            {
+                activeGreenShell = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        RedShell redShellComponent = CurrentTrailingItem.GetComponent<RedShell>();
+        if (redShellComponent != null)
+        {
+            redShellComponent.ReturnToPool();
+            if (redShellComponent == activeRedShell)
+            {
+                activeRedShell = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        Banana bananaComponent = CurrentTrailingItem.GetComponent<Banana>();
+        if (bananaComponent != null)
+        {
+            bananaComponent.ReturnToPool();
+            if (bananaComponent == activeBanana)
+            {
+                activeBanana = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        Bobomb bobombComponent = CurrentTrailingItem.GetComponent<Bobomb>();
+        if (bobombComponent != null)
+        {
+            bobombComponent.ReturnToPool();
+            if (bobombComponent == activeBobomb)
+            {
+                activeBobomb = null;
+            }
+            if (bobombComponent == activeTrailingBobomb)
+            {
+                activeTrailingBobomb = null;
+                bobombTrailingActive = false;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        CurrentTrailingItem.SetActive(false);
+        CurrentTrailingItem = null;
+    }
+
+    private void ActivateHeldVisual(string canonicalName)
+    {
+        GameObject target = GetHeldVisual(canonicalName);
         if (target != null)
         {
             target.SetActive(true);
@@ -514,6 +1059,10 @@ public class ItemManager : MonoBehaviour
     private void ClearCurrentItemVisuals()
     {
         CleanupTrailingItem();
+        activeGreenShell = null;
+        activeRedShell = null;
+        activeBanana = null;
+        activeBobomb = null;
 
         if (item_gameobjects == null || item_gameobjects.Length == 0)
         {
@@ -526,23 +1075,22 @@ public class ItemManager : MonoBehaviour
             if (obj == null)
             {
                 continue;
-            }
+        }
 
             if (IsTripleItem(obj.name))
-            {
+        {
                 ResetTripleChildren(obj);
-            }
+        }
 
             obj.SetActive(false);
         }
 
-        current_Item = "";
         tripleItemCount = 0;
         item_index = -1;
-    }
+        }
 
     private static void ResetTripleChildren(GameObject tripleObject)
-    {
+        {
         if (tripleObject == null)
         {
             return;
@@ -551,8 +1099,8 @@ public class ItemManager : MonoBehaviour
         for (int i = 0; i < tripleObject.transform.childCount; i++)
         {
             tripleObject.transform.GetChild(i).gameObject.SetActive(true);
+            }
         }
-    }
 
     private static bool IsTripleItem(string itemName)
     {
@@ -568,8 +1116,12 @@ public class ItemManager : MonoBehaviour
         }
 
         player_script.Driver.SetTrigger(aimBackwardHeld ? "ThrowBackward" : "ThrowForward");
-        int shellIndex = isRedShell ? 4 : 2;
-        item_gameobjects[shellIndex].SetActive(true);
+        int shellIndex = GetItemIndex(isRedShell ? "RedShell" : "GreenShell");
+        GameObject shellVisual = GetHeldVisual(shellIndex);
+        if (shellVisual != null)
+        {
+            shellVisual.SetActive(true);
+        }
 
         if (aimBackwardHeld)
         {
@@ -579,7 +1131,7 @@ public class ItemManager : MonoBehaviour
             }
             else
             {
-                StartCoroutine(spawnShell(backshellPos, -1));
+            StartCoroutine(spawnShell(backshellPos, -1));
             }
             if (!StarPowerUp)
             {
@@ -594,14 +1146,15 @@ public class ItemManager : MonoBehaviour
             }
             else
             {
-                StartCoroutine(spawnShell(shellSpawnPos, 1));
+            StartCoroutine(spawnShell(shellSpawnPos, 1));
             }
         }
 
         tripleItemCount--;
-        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
         {
-            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
         }
 
         if (tripleItemCount < 1)
@@ -617,10 +1170,19 @@ public class ItemManager : MonoBehaviour
             return;
         }
 
+        Banana banana = itemService.GetAvailableBanana(ItemsStorage);
+        if (banana == null)
+        {
+            Debug.LogWarning("[ItemManager] Banana instance unavailable during triple launch.", this);
+            return;
+        }
+
+        banana.Initialize(this);
         if (aimBackwardHeld)
         {
-            StartCoroutine(spawnBanana(-1));
-            player_script.Driver.SetTrigger("ThrowBackward");
+            banana.DetachFromParent();
+            StartCoroutine(ItemLaunchers.LaunchBananaBackward(this, banana, BackSpawn.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, true));
+            TriggerThrowBackward();
             if (!StarPowerUp)
             {
                 player_script.current_face_material = player_script.faces[1];
@@ -628,14 +1190,16 @@ public class ItemManager : MonoBehaviour
         }
         else
         {
-            player_script.Driver.SetTrigger("ThrowForward");
-            StartCoroutine(spawnBanana(1));
+            TriggerThrowForward();
+            banana.DetachFromParent();
+            StartCoroutine(ItemLaunchers.LaunchBananaForward(this, banana, BananaSpawnPos != null ? BananaSpawnPos.position : transform.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, true));
         }
 
         tripleItemCount--;
-        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
         {
-            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
         }
 
         if (tripleItemCount < 1)
@@ -647,17 +1211,42 @@ public class ItemManager : MonoBehaviour
     private void ResetTripleItemHolder()
     {
         current_Item = "";
-        if (item_gameobjects != null && item_index >= 0 && item_index < item_gameobjects.Length)
+        GameObject tripleObject = GetHeldVisual(item_index);
+        if (tripleObject != null)
         {
-            GameObject tripleObject = item_gameobjects[item_index];
-            if (tripleObject != null)
-            {
-                tripleObject.SetActive(false);
-                ResetTripleChildren(tripleObject);
-            }
+            tripleObject.SetActive(false);
+            ResetTripleChildren(tripleObject);
         }
         tripleItemCount = 0;
         used_Item_Done();
+    }
+
+    public void HandleOrbitingItemConsumed(GameObject orbitingItem)
+    {
+        if (orbitingItem != null)
+        {
+            orbitingItem.SetActive(false);
+        }
+
+        int previousCount = tripleItemCount;
+        if (previousCount <= 0)
+        {
+            ResetTripleItemHolder();
+            return;
+        }
+
+        tripleItemCount = Mathf.Max(0, tripleItemCount - 1);
+
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
+        {
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+        }
+
+        if (tripleItemCount < 1)
+        {
+            ResetTripleItemHolder();
+        }
     }
 
     internal void HandleMushroomUse()
@@ -669,7 +1258,7 @@ public class ItemManager : MonoBehaviour
 
         player_script.Boost_time = 2f;
         PlayBoostEffects();
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         current_Item = "";
         used_Item_Done();
     }
@@ -684,9 +1273,10 @@ public class ItemManager : MonoBehaviour
         player_script.Boost_time = 2.5f;
         tripleItemCount--;
         PlayBoostEffects();
-        if (item_gameobjects[item_index].transform.childCount > tripleItemCount)
+        GameObject tripleVisual = GetHeldVisual(item_index);
+        if (tripleVisual != null && tripleVisual.transform.childCount > tripleItemCount)
         {
-            item_gameobjects[item_index].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
+            tripleVisual.transform.GetChild(tripleItemCount).gameObject.SetActive(false);
         }
         if (tripleItemCount < 1)
         {
@@ -719,9 +1309,9 @@ public class ItemManager : MonoBehaviour
         PlayBoostEffects();
         if (GoldenMushroomTimer < 0)
         {
-            item_gameobjects[item_index].SetActive(false);
-            current_Item = "";
-            used_Item_Done();
+            DeactivateHeldVisual(item_index);
+        current_Item = "";
+        used_Item_Done();
             startMushroomTimer = false;
         }
     }
@@ -793,16 +1383,28 @@ public class ItemManager : MonoBehaviour
         item_index = resolvedIndex;
 
         Sprite spinningSprite = null;
-        string spinningSource = "definition";
-        if (itemDefinitions != null && item_index >= 0 && item_index < itemDefinitions.Length)
+        string spinningSource = "icon-cache";
+
+        if (itemIcons != null && item_index >= 0 && item_index < itemIcons.Length)
         {
-            spinningSprite = itemDefinitions[item_index]?.icon;
+            spinningSprite = itemIcons[item_index];
         }
 
-        if (spinningSprite == null && items_possible != null && item_index >= 0 && item_index < items_possible.Length)
+        if (spinningSprite == null && TryEnsureCatalog() && item_index >= 0)
         {
-            spinningSprite = items_possible[item_index];
-            spinningSource = "legacy";
+            Sprite catalogSprite = catalog.GetIcon(item_index);
+            if (catalogSprite != null)
+            {
+                spinningSprite = catalogSprite;
+                spinningSource = "catalog";
+            }
+        }
+
+        if (spinningSprite == null)
+        {
+            spinningSource = "lookup";
+            string canonicalName = GetItemNameByIndex(item_index);
+            spinningSprite = FindSpriteForItem(canonicalName);
         }
 
         Debug.Log($"[ItemManager] Item_Select -> index {item_index} spriteSource {spinningSource} spriteName {(spinningSprite != null ? spinningSprite.name : "null")}");
@@ -829,24 +1431,83 @@ public class ItemManager : MonoBehaviour
             yield return null;
         }
         
-        item_gameobjects[item_index].SetActive(true); //show the gameobject
-        if (item_gameobjects[item_index].tag != "Non-Hold-Item")
+        GameObject heldVisual = GetHeldVisual(item_index);
+        string selectedItemName = GetItemNameByIndex(item_index) ?? heldVisual?.name;
+
+        if (IsGreenShellName(selectedItemName))
         {
-            player_script.Driver.SetBool("hasItem", true);
+            if (heldVisual != null)
+            {
+                heldVisual.SetActive(false);
+            }
+
+            GreenShell shell = itemService.GetAvailableGreenShell(ItemsStorage);
+            if (shell != null)
+            {
+                shell.Initialize(this);
+                shell.EnterHeld(HeldParent);
+                shell.gameObject.SetActive(true);
+                activeGreenShell = shell;
+            }
+        }
+        else if (IsRedShellName(selectedItemName))
+        {
+            if (heldVisual != null)
+            {
+                heldVisual.SetActive(false);
+            }
+
+            RedShell shell = itemService.GetAvailableRedShell(ItemsStorage);
+            if (shell != null)
+            {
+                shell.Initialize(this);
+                shell.EnterHeld(HeldParent);
+                shell.gameObject.SetActive(true);
+                activeRedShell = shell;
+            }
+        }
+        else if (string.Equals(selectedItemName, "Banana", System.StringComparison.OrdinalIgnoreCase))
+        {
+            if (heldVisual != null)
+            {
+                heldVisual.SetActive(false);
+            }
+
+            Banana banana = itemService.GetAvailableBanana(ItemsStorage);
+            if (banana != null)
+            {
+                banana.Initialize(this);
+                banana.EnterHeld(HeldParent);
+                banana.gameObject.SetActive(true);
+                activeBanana = banana;
+            }
+        }
+        else if (heldVisual != null)
+        {
+            heldVisual.SetActive(true);
+        }
+
+        bool isTripleSelection = IsTripleItem(selectedItemName);
+        bool treatAsTriple = isTripleSelection || (heldVisual != null && heldVisual.CompareTag("Non-Hold-Item"));
+
+        if (!treatAsTriple)
+        {
+            SetHasItem(true);
             player_script.has_item_hold = true;
             tripleItemCount = 0;
 
-            if(item_gameobjects[item_index].name == "GoldenMushroom")
+            if (!string.IsNullOrEmpty(selectedItemName) &&
+                string.Equals(selectedItemName, "GoldenMushroom", System.StringComparison.OrdinalIgnoreCase))
             {
                 GoldenMushroomTimer = 10f;
             }
         }
         else
         {
-            tripleItemCount = 3; //triple item
+            tripleItemCount = 3;
         }
 
-        current_Item = item_gameobjects[item_index].name;
+        current_Item = selectedItemName ?? string.Empty;
 
         hud.PlayLocked();
         item_decided = true;
@@ -854,227 +1515,100 @@ public class ItemManager : MonoBehaviour
     }
 
     //SPAWN FUNCTIONS
-    IEnumerator spawnShell(Transform position, int direction) //spawns a green shell when shot
+    IEnumerator spawnShell(Transform position, int direction)
     {
-
-        yield return new WaitForSeconds(0.15f);
-        GameObject clone = Instantiate(shell, position.position, position.rotation);
-        clone.GetComponent<GreenShell>().who_threw_shell = gameObject.name;
-
-        if (direction == 1) //backwards or forwards -1 and 1 respectively
+        GreenShell shell = itemService.GetAvailableGreenShell(ItemsStorage);
+        if (shell == null)
         {
-            clone.GetComponent<GreenShell>().myVelocity = transform.forward.normalized;
-            clone.GetComponent<GreenShell>().velocityMagOriginal = 6000;
-            clone.GetComponent<GreenShell>().AntiGravity = player_script.antiGravity;
-
-            clone.GetComponent<GreenShell>().lifetime = 0;
-
-            yield return new WaitForSeconds(0.25f);
-            item_gameobjects[2].SetActive(false); //hand shell
-
+            yield break;
         }
-        
-        if (direction == -1)
+
+        shell.Initialize(this);
+        if (direction == 1)
         {
-            clone.GetComponent<GreenShell>().myVelocity = -transform.forward.normalized;
-            clone.GetComponent<GreenShell>().velocityMagOriginal = 3500;
-            clone.GetComponent<GreenShell>().AntiGravity = player_script.antiGravity;
-
-
-            
-            yield return new WaitForSeconds(0.25f);
-            item_gameobjects[2].SetActive(false); //hand shell
-            for (int i = 0; i < 75; i++)
-            {
-                if (!StarPowerUp)
-                {
-                    player_script.current_face_material = player_script.faces[1]; //look left
-                    player_script.SpecialFace = true;
-                }
-                yield return new WaitForSeconds(0.01f);
-            }
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[2]; //blink
-                player_script.SpecialFace = true;
-            }
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[0];//normal
-                player_script.SpecialFace = false;
-            }
-        }
-        
-        
-
-
-
-
-    }
-    IEnumerator spawnRedShell(Transform position, int direction)
-    {
-
-        if(direction == 1)
-        {
-            yield return new WaitForSeconds(0.15f);
-            GameObject clone = Instantiate(redShell, position.position, position.rotation);
-            clone.GetComponent<RedShell>().who_threw_shell = gameObject.name;
-            clone.GetComponent<RedShell>().AntiGravity = player_script.antiGravity;
-
-
-            clone.SetActive(true);
-            clone.GetComponent<RedShell>().current_node = currentWayPoint; //currentWayPoint
-            yield return new WaitForSeconds(0.25f);
-            item_gameobjects[4].SetActive(false); //hand shell
-        }
-        else if(direction == -1)
-        {
-            yield return new WaitForSeconds(0.15f);
-            GameObject clone = Instantiate(redShell, position.position, position.rotation);
-            clone.SetActive(false);
-            clone.GetComponent<RedShell>().who_threw_shell = gameObject.name;
-
-            clone.GetComponent<RedShell>().enabled = false;
-            clone.AddComponent<GreenShell>();
-            clone.GetComponent<GreenShell>().lifetime = 0;
-
-            clone.SetActive(true);
-
-            clone.GetComponent<GreenShell>().myVelocity = -transform.forward.normalized;
-            clone.GetComponent<GreenShell>().velocityMagOriginal = 3500;
-            clone.GetComponent<GreenShell>().AntiGravity = player_script.antiGravity;
-
-            clone.GetComponent<GreenShell>().who_threw_shell = gameObject.name;
-
-
-            yield return new WaitForSeconds(0.25f);
-            item_gameobjects[4].SetActive(false); //hand shell
-            for(int i = 0; i < 75; i++)
-            {
-                if (!StarPowerUp)
-                {
-                    player_script.SpecialFace = true;
-                    player_script.current_face_material = player_script.faces[1]; //make sure it is not changed, by repeating in for loop
-                }
-                yield return new WaitForSeconds(0.01f);
-            }
-            if (!StarPowerUp)
-            {
-                player_script.SpecialFace = true;
-                player_script.current_face_material = player_script.faces[2]; //blink
-            }
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-            {
-                player_script.SpecialFace = false;
-                player_script.current_face_material = player_script.faces[0];//normal
-            }
-        }
-        
-
-    }
-    IEnumerator useBobomb(int direction)
-    {
-        if(direction == 1)
-        {
-            yield return new WaitForSeconds(0.1f);
-            item_gameobjects[item_index].SetActive(false);
-
-            GameObject clone = Instantiate(bobomb, BananaSpawnPos.position, BananaSpawnPos.rotation);
-            clone.SetActive(true);
-            var cloneBomb = clone.GetComponent<Bobomb>();
-            if (cloneBomb != null)
-            {
-                cloneBomb.bomb_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 400);
-            }
-            clone.GetComponent<AudioSource>().enabled = true;
-
-            if (cloneBomb != null)
-            {
-                for (int i = 0; i < cloneBomb.renderers.Length; i++)
-                {
-                    cloneBomb.renderers[i].enabled = true;
-            }
-                for (int i = 0; i < cloneBomb.spark.Length; i++)
-            {
-                    cloneBomb.spark[i].SetActive(true);
-            }
-                cloneBomb.whoThrewBomb = gameObject.name;
-            }
-
-        }
-        if(direction == -1)
-        {
-            yield return new WaitForSeconds(0.1f);
-            item_gameobjects[item_index].SetActive(false);
-
-            GameObject clone = Instantiate(bobomb, backshellPos.position, BananaSpawnPos.rotation);
-            clone.SetActive(true);
-            var cloneBomb = clone.GetComponent<Bobomb>();
-            if (cloneBomb != null)
-            {
-                cloneBomb.bounce_count = 4;
-
-                for (int i = 0; i < cloneBomb.renderers.Length; i++)
-                {
-                    cloneBomb.renderers[i].enabled = true;
-                }
-                for (int i = 0; i < cloneBomb.spark.Length; i++)
-                {
-                    cloneBomb.spark[i].SetActive(true);
-                }
-                cloneBomb.whoThrewBomb = gameObject.name;
-            }
-        }
-    }
-    IEnumerator spawnBanana(int direction)
-    {
-        GameObject clone;
-        if(direction == 1)//forward
-        {
-            yield return new WaitForSeconds(0.1f);
-            item_gameobjects[1].SetActive(false);
-            clone = Instantiate(banana, BananaSpawnPos.position, BananaSpawnPos.rotation);
-            clone.GetComponent<Banana>().Banana_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 200);
-            clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
+            yield return StartCoroutine(ItemLaunchers.LaunchGreenShellForward(this, shell, position.position, position.rotation, 6000f));
+            DeactivateHeldVisual("GreenShell");
         }
         else
         {
-            yield return new WaitForSeconds(0.25f);
-            clone = Instantiate(banana, backshellPos.position, BananaSpawnPos.rotation);
-            clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
+            yield return StartCoroutine(ItemLaunchers.LaunchGreenShellBackward(this, shell, position.position, position.rotation, 3500f));
+            DeactivateHeldVisual("GreenShell");
+        }
+    }
+
+    IEnumerator spawnRedShell(Transform position, int direction)
+    {
+        RedShell shell = itemService.GetAvailableRedShell(ItemsStorage);
+        if (shell == null)
+        {
+            yield break;
+        }
+
+        shell.Initialize(this);
+        if (direction == 1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchRedShellForward(this, shell, position.position, position.rotation));
+            DeactivateHeldVisual("RedShell");
+        }
+        else if (direction == -1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchRedShellBackward(this, shell, position.position, position.rotation));
+            DeactivateHeldVisual("RedShell");
+
             for (int i = 0; i < 75; i++)
             {
                 if (!StarPowerUp)
                 {
-                    player_script.current_face_material = player_script.faces[1]; //make sure it is not changed, by repeating in for loop
                     player_script.SpecialFace = true;
+                    player_script.current_face_material = player_script.faces[1];
                 }
                 yield return new WaitForSeconds(0.01f);
             }
-            item_gameobjects[1].SetActive(false);
+
             if (!StarPowerUp)
             {
-                player_script.current_face_material = player_script.faces[2]; //blink
                 player_script.SpecialFace = true;
-            }
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[0];//normal
-                player_script.SpecialFace = false;
+                player_script.current_face_material = player_script.faces[2];
             }
 
+            yield return new WaitForSeconds(0.1f);
+
+            if (!StarPowerUp)
+            {
+                player_script.SpecialFace = false;
+                player_script.current_face_material = player_script.faces[0];
+            }
+        }
+    }
+    IEnumerator useBobomb(int direction)
+    {
+        Bobomb bobomb = itemService.GetAvailableBobomb(ItemsStorage);
+        if (bobomb == null)
+        {
+            yield break;
         }
 
+        bobomb.Initialize(this);
+        DeactivateHeldVisual(item_index);
 
+        if (direction == 1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchBobombForward(this, bobomb, BananaSpawnPos.position, BananaSpawnPos.rotation));
+        }
+        else if (direction == -1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchBobombBackward(this, bobomb, BackSpawn.position, BananaSpawnPos.rotation));
+        }
     }
     IEnumerator UseCoin()
     {
-        GameObject clone = Instantiate(coin, coinSpawnPos.position, coinSpawnPos.rotation);
+        GameObject clone = InstantiateItemPrefab("Coin", coinPrefab, coinSpawnPos.position, coinSpawnPos.rotation);
+        if (clone == null)
+        {
+            yield break;
+        }
         clone.transform.SetParent(transform);
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         GetComponent<ScoreCount>().COINCOUNT+=2;
 
         yield return new WaitForSeconds(0.3f);
@@ -1087,7 +1621,7 @@ public class ItemManager : MonoBehaviour
         float volume = GameObject.FindGameObjectWithTag("CourseMusic").GetComponent<AudioSource>().volume;
         float volume2 = GameObject.FindGameObjectWithTag("CourseMusic").transform.parent.GetComponent<AudioSource>().volume;
 
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         StarPowerUp = true;
         for(int i = 0; i < playerRenderers.Length; i++)
         {
@@ -1134,7 +1668,7 @@ public class ItemManager : MonoBehaviour
     }
     IEnumerator UseBullet()
     {
-        item_gameobjects[item_index].SetActive(false);
+        DeactivateHeldVisual(item_index);
         isBullet = true;
         bulletPlayer.SetActive(true);
         for(int i = 0; i < playerRenderers.Length; i++)
@@ -1168,11 +1702,15 @@ public class ItemManager : MonoBehaviour
     IEnumerator useBlueShell()
     {
         yield return new WaitForSeconds(0.15f);
-        GameObject clone = Instantiate(BlueShell, shellSpawnPos.position, shellSpawnPos.transform.rotation);
+        GameObject clone = InstantiateItemPrefab("BlueShell", blueShellPrefab, shellSpawnPos.position, shellSpawnPos.transform.rotation);
+        if (clone == null)
+        {
+            yield break;
+        }
         clone.SetActive(true);
         clone.GetComponent<BlueShell>().current_node = currentWayPoint;
         clone.GetComponent<BlueShell>().AntiGravity = player_script.antiGravity;
-        item_gameobjects[item_index].SetActive(false); //hand shell
+        DeactivateHeldVisual(item_index);
         clone.GetComponent<BlueShell>().who_threw_shell = gameObject.name;
     }
 
@@ -1182,16 +1720,14 @@ public class ItemManager : MonoBehaviour
     {
         // For testing we keep the UI visible and skip the auto-refill.
         
+        awaitingGreenShellHoldDecision = false;
+        awaitingRedShellHoldDecision = false;
         player_script.hasitem = false;
         player_script.has_item_hold = false;
         item_decided = false;
         start_select = false;
         hud.StopRoulette();
-
-        if (player_script != null && player_script.Driver != null)
-        {
-        player_script.Driver.SetBool("hasItem", false);
-        }
+        SetHasItem(false);
 
         if (!suppressDebugAutoRefill && debugSettings.selectedItem != DebugItemSelection.None)
         {
@@ -1206,52 +1742,21 @@ public class ItemManager : MonoBehaviour
     
     private int ResolveDebugItemIndex(DebugItemSelection selection)
     {
-        if (item_gameobjects == null)
-        {
-            return -1;
-        }
-
         string targetName = GetDebugItemName(selection);
-        if (string.IsNullOrEmpty(targetName))
+        if (!string.IsNullOrEmpty(targetName))
         {
-            return -1;
+            int directIndex = GetItemIndex(targetName);
+            if (directIndex != -1)
+            {
+                return directIndex;
         }
 
         string sanitizedTarget = SanitizeName(targetName);
-        int fallbackIndex = -1;
-
-        for (int i = 0; i < item_gameobjects.Length; i++)
-        {
-            var obj = item_gameobjects[i];
-            if (obj == null)
+            int sanitizedIndex = FindIndexBySanitizedName(sanitizedTarget);
+            if (sanitizedIndex != -1)
             {
-                continue;
+                return sanitizedIndex;
             }
-
-            string objectName = obj.name;
-            if (string.Equals(objectName, targetName, System.StringComparison.Ordinal))
-            {
-                return i;
-            }
-
-            if (fallbackIndex == -1)
-            {
-                string sanitizedObject = SanitizeName(objectName);
-                if (!string.IsNullOrEmpty(sanitizedObject) && !string.IsNullOrEmpty(sanitizedTarget))
-                {
-                    if (sanitizedObject == sanitizedTarget ||
-                        sanitizedObject.Contains(sanitizedTarget) ||
-                        sanitizedTarget.Contains(sanitizedObject))
-                    {
-                        fallbackIndex = i;
-                    }
-                }
-            }
-        }
-
-        if (fallbackIndex != -1)
-        {
-            return fallbackIndex;
         }
 
         int keywordIndex = ResolveDebugItemIndexByKeywords(selection);
@@ -1260,13 +1765,6 @@ public class ItemManager : MonoBehaviour
             return keywordIndex;
         }
 
-        int referenceIndex = ResolveDebugItemIndexFromReference(selection);
-        if (referenceIndex != -1)
-        {
-            return referenceIndex;
-        }
-
-        LogBobombDebug($"Debug item '{targetName}' could not be matched to item array, even after keyword/reference fallbacks.");
         return -1;
     }
 
@@ -1345,51 +1843,9 @@ public class ItemManager : MonoBehaviour
         }
     }
 
-    private int ResolveDebugItemIndexFromReference(DebugItemSelection itemSelection)
-    {
-        switch (itemSelection)
-        {
-            case DebugItemSelection.GreenShell:
-            case DebugItemSelection.TripleGreenShells:
-                return FindIndexByReference(shell);
-            case DebugItemSelection.RedShell:
-            case DebugItemSelection.TripleRedShells:
-                return FindIndexByReference(redShell);
-            case DebugItemSelection.Banana:
-            case DebugItemSelection.TripleBananas:
-                return FindIndexByReference(banana);
-            case DebugItemSelection.Coin:
-                return FindIndexByReference(coin);
-            case DebugItemSelection.BobombHold:
-                return FindIndexByReference(bobomb);
-            case DebugItemSelection.BlueShell:
-                return FindIndexByReference(BlueShell);
-            default:
-                return -1;
-        }
-    }
-
-    private int FindIndexByReference(GameObject reference)
-    {
-        if (reference == null || item_gameobjects == null)
-        {
-            return -1;
-        }
-
-        for (int i = 0; i < item_gameobjects.Length; i++)
-        {
-            if (item_gameobjects[i] == reference)
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
     private int FindIndexByKeywords(params string[] keywords)
     {
-        if (keywords == null || keywords.Length == 0 || item_gameobjects == null)
+        if (keywords == null || keywords.Length == 0 || itemNames == null)
         {
             return -1;
         }
@@ -1400,15 +1856,24 @@ public class ItemManager : MonoBehaviour
             sanitizedKeywords[k] = SanitizeName(keywords[k]);
         }
 
-        for (int i = 0; i < item_gameobjects.Length; i++)
+        for (int i = 0; i < itemNames.Length; i++)
+        {
+            string candidate = itemNames[i];
+            if (string.IsNullOrEmpty(candidate) && item_gameobjects != null && i < item_gameobjects.Length)
         {
             var obj = item_gameobjects[i];
-            if (obj == null)
+                if (obj != null)
+                {
+                    candidate = obj.name;
+                }
+            }
+
+            if (string.IsNullOrEmpty(candidate))
             {
                 continue;
             }
 
-            string sanitizedObject = SanitizeName(obj.name);
+            string sanitizedObject = SanitizeName(candidate);
             if (string.IsNullOrEmpty(sanitizedObject))
             {
                 continue;
@@ -1438,6 +1903,45 @@ public class ItemManager : MonoBehaviour
         return -1;
     }
 
+    private int FindIndexBySanitizedName(string sanitizedName)
+    {
+        if (string.IsNullOrEmpty(sanitizedName))
+        {
+            return -1;
+        }
+
+        if (itemNames != null)
+        {
+            for (int i = 0; i < itemNames.Length; i++)
+            {
+                string name = itemNames[i];
+                if (!string.IsNullOrEmpty(name) && SanitizeName(name) == sanitizedName)
+                {
+                    return i;
+                }
+            }
+        }
+
+        if (item_gameobjects != null)
+        {
+            for (int i = 0; i < item_gameobjects.Length; i++)
+            {
+                var obj = item_gameobjects[i];
+                if (obj == null)
+                {
+                    continue;
+                }
+
+                if (SanitizeName(obj.name) == sanitizedName)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
     private string SanitizeName(string value)
     {
         if (string.IsNullOrEmpty(value))
@@ -1460,36 +1964,31 @@ public class ItemManager : MonoBehaviour
 
     private Sprite FindSpriteForItem(string itemName)
     {
-        if (items_possible == null || items_possible.Length == 0)
+        if (string.IsNullOrEmpty(itemName))
         {
             return null;
         }
 
-        string canonical = itemName ?? string.Empty;
-        string sanitizedName = SanitizeName(canonical);
-        if (string.IsNullOrEmpty(sanitizedName))
+        if (iconByName != null && iconByName.TryGetValue(itemName, out var directSprite) && directSprite != null)
         {
-            return null;
+            return directSprite;
         }
 
-        for (int i = 0; i < items_possible.Length; i++)
+        string sanitizedName = SanitizeName(itemName);
+        if (!string.IsNullOrEmpty(sanitizedName) &&
+            iconBySanitizedName != null &&
+            iconBySanitizedName.TryGetValue(sanitizedName, out var sanitizedSprite) &&
+            sanitizedSprite != null)
         {
-            var sprite = items_possible[i];
-            if (sprite == null)
-            {
-                continue;
-            }
+            return sanitizedSprite;
+        }
 
-            string sanitizedSprite = SanitizeName(sprite.name);
-            if (sanitizedSprite == sanitizedName)
+        if (TryEnsureCatalog())
+        {
+            Sprite catalogSprite = catalog.GetIcon(itemName);
+            if (catalogSprite != null)
             {
-                return sprite;
-            }
-
-            if (!string.IsNullOrEmpty(sanitizedSprite) &&
-                (sanitizedSprite.Contains(sanitizedName) || sanitizedName.Contains(sanitizedSprite)))
-            {
-                return sprite;
+                return catalogSprite;
             }
         }
  
@@ -1506,7 +2005,6 @@ public class ItemManager : MonoBehaviour
         int index = ResolveDebugItemIndex(selection);
         if (index < 0)
         {
-            LogBobombDebug($"Debug selection {selection} could not be matched to an item index.");
             return;
         }
 
@@ -1629,108 +2127,315 @@ public class ItemManager : MonoBehaviour
 
     private void StartBobombTrailing()
     {
-        LogBobombDebug($"StartBobombTrailing entered: bobombTrailingActive(before)={bobombTrailingActive}, currentItem={current_Item}, backshellPos={backshellPos.position}");
+        Bobomb bobomb = activeBobomb != null && activeBobomb.IsAvailable() ? activeBobomb : itemService.GetAvailableBobomb(ItemsStorage);
+        if (bobomb == null)
+        {
+            bobombTrailingActive = false;
+            return;
+        }
 
+        bobomb.Initialize(this);
+        bobomb.EnterTrailing(GetTrailingParent());
+        activeBobomb = bobomb;
+        activeTrailingBobomb = bobomb;
+        CurrentTrailingItem = bobomb.gameObject;
         bobombTrailingActive = true;
-        player_script.Driver.SetBool("hasItem", false);
-        item_gameobjects[item_index].SetActive(false);
 
-        activeTrailingBobomb = Instantiate(bobomb, backshellPos.position, backshellPos.rotation, backshellPos);
-        LogBobombDebug($"Instantiated trailing Bobomb '{activeTrailingBobomb?.name}' at {backshellPos.position}");
-        var bombScript = activeTrailingBobomb.GetComponent<Bobomb>();
-        if (bombScript != null)
-        {
-            bombScript.whoThrewBomb = gameObject.name;
-            bombScript.BeginHeld(bobombHeldFuseDuration, OnBobombHeldExplosion);
-            LogBobombDebug($"BeginHeld invoked on Bobomb with fuse={bobombHeldFuseDuration}s");
-        }
-        else
-        {
-            LogBobombDebug("Warning: trailing Bobomb missing Bobomb component");
-        }
-
-        CurrentTrailingItem = activeTrailingBobomb;
-        LogBobombDebug("StartBobombTrailing completed");
+        SetHasItem(false);
+        DeactivateHeldVisual(item_index);
     }
 
     private void ReleaseBobombTrailing()
     {
-        LogBobombDebug($"ReleaseBobombTrailing entered: bobombTrailingActive(before)={bobombTrailingActive}, activeBomb={(activeTrailingBobomb != null ? activeTrailingBobomb.name : "null")}, kartForward={transform.forward}");
-
         bobombTrailingActive = false;
 
         if (activeTrailingBobomb != null)
         {
-            var bombScript = activeTrailingBobomb.GetComponent<Bobomb>();
-            if (bombScript != null)
-            {
-                bombScript.ReleaseHeldAsMine();
-                LogBobombDebug("ReleaseHeldAsMine called on trailing Bobomb");
-            }
-            ReleaseBobombAsMine(activeTrailingBobomb, -transform.forward);
+            activeTrailingBobomb.ReleaseHeldAsMine();
+            ReleaseBobombAsMine(activeTrailingBobomb.gameObject, -transform.forward);
             activeTrailingBobomb = null;
         }
 
+        if (activeBobomb != null)
+        {
+            activeBobomb = null;
+        }
+
         CurrentTrailingItem = null;
-        player_script.Driver.SetTrigger("ThrowBackward");
+        TriggerThrowBackward();
         used_Item_Done();
         current_Item = "";
-        LogBobombDebug("ReleaseBobombTrailing finished cleanup");
     }
 
-    private void OnBobombHeldExplosion()
+    internal void OnBobombTrailingExploded(Bobomb bobomb)
     {
-        LogBobombDebug("OnBobombHeldExplosion invoked (held fuse expired)");
         bobombTrailingActive = false;
 
-        if (activeTrailingBobomb != null)
+        if (bobomb != null)
         {
-            activeTrailingBobomb.transform.SetParent(null, true);
-            activeTrailingBobomb = null;
+            bobomb.ReturnToPool();
+            if (bobomb == activeBobomb)
+            {
+                activeBobomb = null;
+            }
+            if (bobomb == activeTrailingBobomb)
+            {
+                activeTrailingBobomb = null;
+            }
         }
 
         CurrentTrailingItem = null;
         used_Item_Done();
         current_Item = "";
-        LogBobombDebug("OnBobombHeldExplosion cleanup finished");
     }
 
     private void ReleaseBobombAsMine(GameObject bombObject, Vector3 forwardDirection)
     {
         if (bombObject == null)
         {
-            LogBobombDebug("ReleaseBobombAsMine called with null bombObject");
             return;
         }
 
-        bombObject.transform.SetParent(null, true);
-        bombObject.SetActive(true);
-        LogBobombDebug($"Bobomb released as mine at position={bombObject.transform.position}, forwardDirection={forwardDirection}");
-
-        var rb = bombObject.GetComponent<Rigidbody>();
-        if (rb != null)
-        {
-            rb.isKinematic = false;
-            rb.velocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            rb.AddForce(forwardDirection.normalized * 15f, ForceMode.VelocityChange);
-            LogBobombDebug($"Applied release impulse. Dir={forwardDirection.normalized}, magnitude=15, resultingVelocity={rb.velocity}");
-        }
-
-        var bombScript = bombObject.GetComponent<Bobomb>();
+        Bobomb bombScript = bombObject.GetComponent<Bobomb>();
         if (bombScript != null)
         {
-            bombScript.enabled = true;
-            bombScript.whoThrewBomb = gameObject.name;
-            LogBobombDebug("Bobomb script re-enabled and whoThrewBomb set");
+            bombScript.EnterMine(bombObject.transform.position, bombObject.transform.rotation, gameObject.name);
+            Rigidbody rb = bombObject.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.AddForce(forwardDirection.normalized * 15f, ForceMode.VelocityChange);
+            }
+        }
+    }
+
+    private Transform GetItemsParent()
+    {
+        if (itemsRuntimeParent != null)
+        {
+            if (heldItemParent != null && itemsRuntimeParent != heldItemParent)
+            {
+                itemsRuntimeParent = heldItemParent;
+                if (itemService != null)
+                {
+                    itemService.ReparentAllPools(itemsRuntimeParent);
+                }
+#if UNITY_EDITOR
+                Debug.Log($"[ItemManager] Items parent switched to heldItemParent {itemsRuntimeParent.name}.", itemsRuntimeParent);
+#endif
+            }
+            return itemsRuntimeParent;
         }
 
-        var audio = bombObject.GetComponent<AudioSource>();
-        if (audio != null)
+        if (heldItemParent != null)
         {
-            audio.enabled = true;
-            audio.Play();
-            LogBobombDebug("Played Bobomb audio on release");
+            itemsRuntimeParent = heldItemParent;
+            if (itemService != null)
+            {
+                itemService.ReparentAllPools(itemsRuntimeParent);
+            }
+#if UNITY_EDITOR
+            Debug.Log($"[ItemManager] Using heldItemParent {itemsRuntimeParent.name} as items parent.", itemsRuntimeParent);
+#endif
+            return itemsRuntimeParent;
+        }
+
+        Transform existing = transform.Find("ItemsParent");
+        if (existing != null)
+        {
+            itemsRuntimeParent = existing;
+#if UNITY_EDITOR
+            Debug.Log($"[ItemManager] Found ItemsParent child {itemsRuntimeParent.name}.", itemsRuntimeParent);
+#endif
+            return itemsRuntimeParent;
+        }
+
+        itemsRuntimeParent = transform;
+        if (itemService != null)
+        {
+            itemService.ReparentAllPools(itemsRuntimeParent);
+        }
+#if UNITY_EDITOR
+        Debug.Log("[ItemManager] Falling back to kart transform for items parent.", this);
+#endif
+        return itemsRuntimeParent;
+    }
+
+    internal Transform GreenShellStorage => GetItemsParent();
+
+    private static bool IsGreenShellName(string itemName)
+    {
+        return !string.IsNullOrEmpty(itemName) && string.Equals(itemName, "GreenShell", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsRedShellName(string itemName)
+    {
+        return !string.IsNullOrEmpty(itemName) && string.Equals(itemName, "RedShell", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ProcessGreenShellHold(bool useItemHeldNow)
+    {
+        if (!awaitingGreenShellHoldDecision)
+        {
+            return;
+        }
+
+        if (!player_script.hasitem || !IsGreenShellName(current_Item))
+        {
+            awaitingGreenShellHoldDecision = false;
+            return;
+        }
+
+        if (!useItemHeldNow)
+        {
+            awaitingGreenShellHoldDecision = false;
+            return;
+        }
+
+        float elapsed = Time.time - greenShellHoldStartTime;
+        if (elapsed < greenShellHoldToTrailTime)
+        {
+            return;
+        }
+
+        awaitingGreenShellHoldDecision = false;
+#if UNITY_EDITOR
+        Debug.Log($"[ItemManager] Green shell hold threshold met after {elapsed:F3}s. Entering trailing state.", this);
+#endif
+        StartTrailingItemIfNeeded("GreenShell");
+    }
+
+    private void ProcessRedShellHold(bool useItemHeldNow)
+    {
+        if (!awaitingRedShellHoldDecision)
+        {
+            return;
+        }
+
+        if (!player_script.hasitem || !IsRedShellName(current_Item))
+        {
+            awaitingRedShellHoldDecision = false;
+            return;
+        }
+
+        if (!useItemHeldNow)
+        {
+            awaitingRedShellHoldDecision = false;
+            return;
+        }
+
+        float elapsed = Time.time - redShellHoldStartTime;
+        if (elapsed < redShellHoldToTrailTime)
+        {
+            return;
+        }
+
+        awaitingRedShellHoldDecision = false;
+#if UNITY_EDITOR
+        Debug.Log($"[ItemManager] Red shell hold threshold met after {elapsed:F3}s. Entering trailing state.", this);
+#endif
+        StartTrailingItemIfNeeded("RedShell");
+    }
+
+    internal void OnGreenShellTrailingConsumed(GreenShell shell)
+    {
+        awaitingGreenShellHoldDecision = false;
+        if (shell != null)
+        {
+            shell.ReturnToPool();
+            if (shell == activeGreenShell)
+            {
+                activeGreenShell = null;
+            }
+        }
+
+        current_Item = string.Empty;
+        CurrentTrailingItem = null;
+        used_Item_Done();
+    }
+
+    internal void OnGreenShellReturned(GreenShell shell)
+    {
+        awaitingGreenShellHoldDecision = false;
+        if (shell == activeGreenShell)
+        {
+            activeGreenShell = null;
+        }
+    }
+
+    internal void OnRedShellTrailingConsumed(RedShell shell)
+    {
+        if (shell != null)
+        {
+            shell.ReturnToPool();
+        }
+
+        current_Item = string.Empty;
+        CurrentTrailingItem = null;
+        used_Item_Done();
+    }
+
+    internal void OnRedShellReturned(RedShell shell)
+    {
+        awaitingRedShellHoldDecision = false;
+        if (shell == activeRedShell)
+        {
+            activeRedShell = null;
+        }
+    }
+
+    internal void OnBananaTrailingConsumed(Banana banana)
+    {
+        if (banana != null)
+        {
+            banana.ReturnToPool();
+            if (banana == activeBanana)
+            {
+                activeBanana = null;
+            }
+        }
+
+        current_Item = string.Empty;
+        CurrentTrailingItem = null;
+        used_Item_Done();
+    }
+
+    internal void OnBananaReturned(Banana banana)
+    {
+        if (banana == activeBanana)
+        {
+            activeBanana = null;
+        }
+    }
+
+    private IEnumerator HandleBackwardThrowFaces()
+    {
+        if (StarPowerUp || player_script == null || player_script.faces == null || player_script.faces.Length == 0)
+        {
+            yield break;
+        }
+
+        if (player_script.faces.Length > 1)
+        {
+            player_script.current_face_material = player_script.faces[1];
+            player_script.SpecialFace = true;
+        }
+
+        yield return new WaitForSeconds(0.75f);
+
+        if (player_script.faces.Length > 2)
+        {
+            player_script.current_face_material = player_script.faces[2];
+        }
+
+        yield return new WaitForSeconds(0.1f);
+
+        if (player_script.faces.Length > 0)
+        {
+            player_script.current_face_material = player_script.faces[0];
+            player_script.SpecialFace = false;
         }
     }
 }
+
+
+

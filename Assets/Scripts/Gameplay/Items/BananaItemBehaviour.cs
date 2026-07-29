@@ -1,10 +1,10 @@
 public class BananaItemBehaviour : IItemBehaviour
 {
-    private readonly int trailingIndex;
+    private readonly string trailingItemName;
 
-    public BananaItemBehaviour(int trailingIndex)
+    public BananaItemBehaviour(string trailingItemName)
     {
-        this.trailingIndex = trailingIndex;
+        this.trailingItemName = trailingItemName;
     }
 
     public bool SupportsTrailing => true;
@@ -13,7 +13,7 @@ public class BananaItemBehaviour : IItemBehaviour
     {
         if (!aimBackwardHeld)
         {
-            context.Manager.StartTrailingItemIfNeeded(trailingIndex);
+            context.Manager.StartTrailingItemIfNeeded(trailingItemName);
         }
     }
 
