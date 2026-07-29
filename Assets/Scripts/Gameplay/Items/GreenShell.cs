@@ -24,7 +24,7 @@ public class GreenShell : MonoBehaviour
     private SphereCollider sphereCollider;
     private Rigidbody rb;
     private RACE_MANAGER rm;
-    private ItemManager ownerManager;
+    private IItemDriver ownerManager;
     private Transform followParent;
     private Renderer[] cachedRenderers;
     private ParticleSystem[] cachedParticles;
@@ -65,7 +65,7 @@ public class GreenShell : MonoBehaviour
         }
     }
 
-    public void Initialize(ItemManager owner)
+    public void Initialize(IItemDriver owner)
     {
         ownerManager = owner;
         managedByItemManager = true;
@@ -312,7 +312,10 @@ public class GreenShell : MonoBehaviour
             return;
         }
 
-        if (currentState == ShellState.Held && ownerManager != null && ownerManager.GreenShellStorage != null && transform.parent == ownerManager.GreenShellStorage)
+        if (currentState == ShellState.Held && ownerManager != null)
+        {
+            ItemManager itemMgr = ownerManager as ItemManager;
+            if (itemMgr != null && itemMgr.GreenShellStorage != null && transform.parent == itemMgr.GreenShellStorage)
         {
             if (transform.localPosition != Vector3.zero)
             {
@@ -541,7 +544,8 @@ public class GreenShell : MonoBehaviour
             if (opponent != null && !opponent.StarPowerUp)
             {
                 opponent.hitByShell();
-                ownerManager.OnGreenShellTrailingConsumed(this);
+                ItemManager itemMgr = ownerManager as ItemManager;
+                if (itemMgr != null) itemMgr.OnGreenShellTrailingConsumed(this);
                 destroyShell();
             }
             return;
@@ -553,7 +557,8 @@ public class GreenShell : MonoBehaviour
             if (targetManager != null && targetManager != ownerManager && !targetManager.StarPowerUp)
             {
                 StartCoroutine(other.GetComponent<Player>().hitByShell());
-                ownerManager.OnGreenShellTrailingConsumed(this);
+                ItemManager itemMgr = ownerManager as ItemManager;
+                if (itemMgr != null) itemMgr.OnGreenShellTrailingConsumed(this);
                 destroyShell();
             }
             return;
@@ -615,7 +620,8 @@ public class GreenShell : MonoBehaviour
         yield return new WaitForSeconds(3f);
         EnsureRenderers(true);
         EnterInactive();
-        ownerManager.OnGreenShellReturned(this);
+        ItemManager itemMgr = ownerManager as ItemManager;
+        if (itemMgr != null) itemMgr.OnGreenShellReturned(this);
     }
 
     private void EnterInactive()
@@ -628,16 +634,20 @@ public class GreenShell : MonoBehaviour
         sphereCollider.enabled = false;
         sphereCollider.isTrigger = false;
         gameObject.SetActive(false);
-        if (ownerManager != null && ownerManager.GreenShellStorage != null)
+        if (ownerManager != null)
         {
-            transform.SetParent(ownerManager.GreenShellStorage, false);
-            transform.localPosition = Vector3.zero;
-            transform.localRotation = Quaternion.identity;
-            transform.localScale = initialLocalScale;
-            if (rb != null)
+            ItemManager itemMgr = ownerManager as ItemManager;
+            if (itemMgr != null && itemMgr.GreenShellStorage != null)
             {
-                rb.position = transform.position;
-                rb.rotation = transform.rotation;
+                    transform.SetParent(itemMgr.GreenShellStorage, false);
+                transform.localPosition = Vector3.zero;
+                transform.localRotation = Quaternion.identity;
+                transform.localScale = initialLocalScale;
+                if (rb != null)
+                {
+                    rb.position = transform.position;
+                    rb.rotation = transform.rotation;
+                }
             }
         }
     }

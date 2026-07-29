@@ -2,11 +2,12 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class OpponentItemManager : MonoBehaviour
+public class OpponentItemManager : MonoBehaviour, IItemDriver
 {
     private ComputerDriver ai_script;
     private LapCounter lap_counter;
     private ComputerDriverSounds comp_sounds;
+    private ItemService itemService;
 
 
 
@@ -95,11 +96,53 @@ public class OpponentItemManager : MonoBehaviour
         ai_script = GetComponent<ComputerDriver>();
         lap_counter = GetComponent<LapCounter>();
         comp_sounds = GetComponent<ComputerDriverSounds>();
+        itemService = ItemService.Instance;
 
         player = GameObject.FindGameObjectWithTag("Player").transform;
         rm = GameObject.Find("RaceManager").GetComponent<RACE_MANAGER>();
 
         BuildItemCache();
+    }
+
+    // IItemDriver implementation
+    public Transform ForwardSpawn => shellPos != null ? shellPos : transform;
+    public Transform BackSpawn => shellposBack != null ? shellposBack : transform;
+    public Transform HeldParent => heldItemParent != null ? heldItemParent : transform;
+    public Transform TrailingParent => shellposBack != null ? shellposBack : transform;
+    public Transform ItemsStorage => transform;
+    public int CurrentWaypoint => currentWayPoint;
+    public bool IsStarActive => StarPowerUp;
+    public bool IsAntiGravity => ai_script != null && ai_script.AntiGravity;
+    public string DriverName => gameObject.name;
+    public GameObject DriverGameObject => gameObject;
+
+    public void TriggerThrowForward()
+    {
+        if (ai_script != null && ai_script.DriverAnim != null)
+        {
+            ai_script.DriverAnim.SetTrigger("ThrowForward");
+        }
+    }
+
+    public void TriggerThrowBackward()
+    {
+        if (ai_script != null && ai_script.DriverAnim != null)
+        {
+            ai_script.DriverAnim.SetTrigger("ThrowBack");
+        }
+    }
+
+    public void SetHasItem(bool hasItem)
+    {
+        if (ai_script != null && ai_script.DriverAnim != null)
+        {
+            ai_script.DriverAnim.SetBool("hasItem", hasItem);
+        }
+    }
+
+    public Rigidbody GetRigidbody()
+    {
+        return GetComponent<Rigidbody>();
     }
 
     // Update is called once per frame
@@ -506,7 +549,7 @@ public class OpponentItemManager : MonoBehaviour
     }
 
     //these methods control what happens when hit by an item
-    public void hitByShell() //same method for red and green shells since they do the exact same effect when hitting the player
+    public void hitByShell() //same method for red && green shells since they do the exact same effect when hitting the player
     {
 
         if (!invincible)
@@ -540,7 +583,7 @@ public class OpponentItemManager : MonoBehaviour
     {
         timeHavingItem += Time.deltaTime; //stores the time for how long the opponent has an item for
         tripleitemActionTime += Time.deltaTime; //will be used as a timer for when the next item in the triple should be used 
-        //this raycast thing will be used for some items such as projectiles and bananas
+        //this raycast thing will be used for some items such as projectiles && bananas
 
         if (current_item == "GreenShell")
         {
@@ -726,7 +769,7 @@ public class OpponentItemManager : MonoBehaviour
                 timeHavingItem = 0;
                 for (int i = 0; i < ai_script.BoostBurstPS.transform.childCount; i++) //boost burst
                 {
-                    ai_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left and right included
+                    ai_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left && right included
                 }
             } 
         }
@@ -750,7 +793,7 @@ public class OpponentItemManager : MonoBehaviour
                     ItemsPossible[itemIndex].transform.GetChild(tripleItemCount).gameObject.SetActive(false);
                     for (int i = 0; i < ai_script.BoostBurstPS.transform.childCount; i++) //boost burst
                     {
-                        ai_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left and right included
+                        ai_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left && right included
                     }
                 }
                 if (tripleItemCount <= 0)
@@ -778,7 +821,7 @@ public class OpponentItemManager : MonoBehaviour
 
                 for (int i = 0; i < ai_script.BoostBurstPS.transform.childCount; i++) //boost burst
                 {
-                    ai_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left and right included
+                    ai_script.BoostBurstPS.transform.GetChild(i).GetComponent<ParticleSystem>().Play(); //left && right included
                 }
                 /*
                 if (playersounds.Check_if_playing())
@@ -990,189 +1033,68 @@ public class OpponentItemManager : MonoBehaviour
 
     IEnumerator useShell(int direction, Transform position)
     {
-
-        yield return new WaitForSeconds(0.15f);
-        GameObject clone = InstantiateWorldItem("GreenShell", position.position, position.rotation);
-        if (clone == null)
+        GreenShell shell = itemService.GetAvailableGreenShell(ItemsStorage);
+        if (shell == null)
         {
             yield break;
         }
-        GreenShell shellComponent = clone.GetComponent<GreenShell>();
-        if (shellComponent == null)
-        {
-            Debug.LogWarning("[OpponentItemManager] Spawned GreenShell prefab is missing GreenShell component.", clone);
-            yield break;
-        }
 
-        if (direction == 1) //backwards or forwards -1 and 1 respectively
-        {
-            shellComponent.myVelocity = transform.forward.normalized;
-            shellComponent.velocityMagOriginal = 6000;
-            shellComponent.AntiGravity = ai_script.AntiGravity;
-            yield return new WaitForSeconds(0.25f);
-            if(current_item !="TripleGreenShells")
-                SetHeldVisualActive(itemIndex, false); //hand shell
-
-        }
-        if (direction == -1)
-        {
-            shellComponent.myVelocity = -transform.forward.normalized;
-            shellComponent.velocityMagOriginal = 3500;
-            shellComponent.AntiGravity = ai_script.AntiGravity;
-            yield return new WaitForSeconds(0.25f);
-            if (current_item != "TripleGreenShells")
-                SetHeldVisualActive(itemIndex, false); //hand shell
-
-            /*
-            for (int i = 0; i < 75; i++)
-            {
-                if (!StarPowerUp)
-                    player_script.current_face_material = player_script.faces[1]; //look left
-                yield return new WaitForSeconds(0.01f);
-            }
-            if (!StarPowerUp)
-                player_script.current_face_material = player_script.faces[2]; //blink
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-                player_script.current_face_material = player_script.faces[0];//normal
-            */
-        }
-        shellComponent.who_threw_shell = gameObject.name;
-    }
-    IEnumerator useRedShell(int direction, Transform position)
-    {
         if (direction == 1)
         {
-            yield return new WaitForSeconds(0.15f);
-            GameObject clone = InstantiateWorldItem("RedShell", position.position, position.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.SetActive(true);
-            RedShell redShellComponent = clone.GetComponent<RedShell>();
-            if (redShellComponent != null)
-            {
-                redShellComponent.who_threw_shell = gameObject.name;
-                redShellComponent.current_node = currentWayPoint;
-                redShellComponent.AntiGravity = ai_script.AntiGravity;
-            }
-            else
-            {
-                Debug.LogWarning("[OpponentItemManager] Spawned RedShell prefab is missing RedShell component.", clone);
-            }
-
-            yield return new WaitForSeconds(0.25f);
-            if(current_item != "TripleRedShells")
-                SetHeldVisualActive(itemIndex, false); //hand shell
+            yield return StartCoroutine(ItemLaunchers.LaunchGreenShellForward(this, shell, position.position, position.rotation, 6000f));
+            if (current_item != "TripleGreenShells")
+                SetHeldVisualActive(itemIndex, false);
         }
         else if (direction == -1)
         {
-            yield return new WaitForSeconds(0.15f);
-            GameObject clone = InstantiateWorldItem("RedShell", position.position, position.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            RedShell redShellComponent = clone.GetComponent<RedShell>();
-            if (redShellComponent != null)
-            {
-                redShellComponent.who_threw_shell = gameObject.name;
-                redShellComponent.enabled = false;
-            }
-            clone.SetActive(false);
-            clone.AddComponent<GreenShell>();
-            clone.SetActive(true);
+            yield return StartCoroutine(ItemLaunchers.LaunchGreenShellBackward(this, shell, position.position, position.rotation, 3500f));
+            if (current_item != "TripleGreenShells")
+                SetHeldVisualActive(itemIndex, false);
+        }
+    }
+    IEnumerator useRedShell(int direction, Transform position)
+    {
+        RedShell shell = itemService.GetAvailableRedShell(ItemsStorage);
+        if (shell == null)
+        {
+            yield break;
+        }
 
-            GreenShell shellComponent = clone.GetComponent<GreenShell>();
-            if (shellComponent != null)
-            {
-                shellComponent.myVelocity = -transform.forward.normalized;
-                shellComponent.velocityMagOriginal = 3500;
-                shellComponent.AntiGravity = ai_script.AntiGravity;
-                shellComponent.who_threw_shell = gameObject.name;
-            }
-            else
-            {
-                Debug.LogWarning("[OpponentItemManager] Converted RedShell is missing GreenShell component.", clone);
-            }
-
+        if (direction == 1)
+        {
+            shell.Initialize(this);
+            shell.EnterProjectile(position.position, position.rotation, currentWayPoint, IsAntiGravity, gameObject.name);
             yield return new WaitForSeconds(0.25f);
             if (current_item != "TripleRedShells")
-                SetHeldVisualActive(itemIndex, false); //hand shell
-
-            /*
-            for (int i = 0; i < 75; i++)
-            {
-                if (!StarPowerUp)
-                    player_script.current_face_material = player_script.faces[1]; //make sure it is not changed, by repeating in for loop
-                yield return new WaitForSeconds(0.01f);
-            }
-            if (!StarPowerUp)
-                player_script.current_face_material = player_script.faces[2]; //blink
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-                player_script.current_face_material = player_script.faces[0];//normal
-
-            */
+                SetHeldVisualActive(itemIndex, false);
+        }
+        else if (direction == -1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchRedShellBackward(this, shell, position.position, position.rotation));
+            if (current_item != "TripleRedShells")
+                SetHeldVisualActive(itemIndex, false);
         }
     }
     IEnumerator spawnBanana(int direction)
     {
-        GameObject clone;
-        if (direction == 1)//forward
+        Banana banana = itemService.GetAvailableBanana(ItemsStorage);
+        if (banana == null)
         {
-            yield return new WaitForSeconds(0.1f);
+            yield break;
+        }
+
+        if (direction == 1)
+        {
             if (current_item != "TripleBananas")
-                SetHeldVisualActive(itemIndex, false); //hand banana
-            clone = InstantiateWorldItem("Banana", bananaPos.position, bananaPos.rotation);
-            if (clone != null)
-            {
-                var bananaComponent = clone.GetComponent<Banana>();
-                if (bananaComponent != null)
-                {
-                    bananaComponent.Banana_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 500);
-                    bananaComponent.whoThrewBanana = gameObject.name;
-                }
-                else
-                {
-                    Debug.LogWarning("[OpponentItemManager] Spawned Banana prefab is missing Banana component.", clone);
-                }
-            }
+                SetHeldVisualActive(itemIndex, false);
+            yield return StartCoroutine(ItemLaunchers.LaunchBananaForward(this, banana, bananaPos.position, bananaPos.rotation, current_item == "TripleBananas"));
         }
         else
         {
-            yield return new WaitForSeconds(0.25f);
-            clone = InstantiateWorldItem("Banana", shellposBack.position, bananaPos.rotation);
-            if(current_item != "TripleBananas")
-                SetHeldVisualActive(itemIndex, false); //hand banana
-            if (clone != null)
-            {
-                var bananaComponent = clone.GetComponent<Banana>();
-                if (bananaComponent != null)
-                {
-                    bananaComponent.whoThrewBanana = gameObject.name;
-                }
-            }
-                                                       /*
-                                                       for (int i = 0; i < 75; i++)
-                                                       {
-                                                           if (!StarPowerUp)
-                                                               player_script.current_face_material = player_script.faces[1]; //make sure it is not changed, by repeating in for loop
-                                                           yield return new WaitForSeconds(0.01f);
-                                                       }
-                                                       item_gameobjects[1].SetActive(false);
-                                                       if (!StarPowerUp)
-                                                           player_script.current_face_material = player_script.faces[2]; //blink
-                                                       yield return new WaitForSeconds(0.1f);
-                                                       if (!StarPowerUp)
-                                                           player_script.current_face_material = player_script.faces[0];//normal
-                                                       clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
-
-                                                       */
+            if (current_item != "TripleBananas")
+                SetHeldVisualActive(itemIndex, false);
+            yield return StartCoroutine(ItemLaunchers.LaunchBananaBackward(this, banana, shellposBack.position, bananaPos.rotation, current_item == "TripleBananas"));
         }
-
-
     }
     IEnumerator useBlueShell()
     {
@@ -1200,54 +1122,21 @@ public class OpponentItemManager : MonoBehaviour
     }
     IEnumerator useBobomb(int direction)
     {
+        Bobomb bobomb = itemService.GetAvailableBobomb(ItemsStorage);
+        if (bobomb == null)
+        {
+            yield break;
+        }
+
+        SetHeldVisualActive(itemIndex, false);
+
         if (direction == 1)
         {
-            yield return new WaitForSeconds(0.1f);
-                SetHeldVisualActive(itemIndex, false);
-
-            GameObject clone = InstantiateWorldItem("Bobomb-Hold", bananaPos.position, bananaPos.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.SetActive(true);
-            clone.GetComponent<Bobomb>().bomb_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 400);
-            clone.GetComponent<AudioSource>().enabled = true;
-
-            for (int i = 0; i < clone.GetComponent<Bobomb>().renderers.Length; i++)
-            {
-                clone.GetComponent<Bobomb>().renderers[i].enabled = true;
-            }
-            for (int i = 0; i < clone.GetComponent<Bobomb>().spark.Length; i++)
-            {
-                clone.GetComponent<Bobomb>().spark[i].SetActive(true);
-            }
-            clone.GetComponent<Bobomb>().whoThrewBomb = gameObject.name;
-
+            yield return StartCoroutine(ItemLaunchers.LaunchBobombForward(this, bobomb, bananaPos.position, bananaPos.rotation));
         }
-        if (direction == -1)
+        else if (direction == -1)
         {
-            yield return new WaitForSeconds(0.1f);
-            SetHeldVisualActive(itemIndex, false);
-
-            GameObject clone = InstantiateWorldItem("Bobomb-Hold", shellposBack.position, shellposBack.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.SetActive(true);
-            clone.GetComponent<AudioSource>().enabled = true;
-            clone.GetComponent<Bobomb>().bounce_count = 4;
-
-            for (int i = 0; i < clone.GetComponent<Bobomb>().renderers.Length; i++)
-            {
-                clone.GetComponent<Bobomb>().renderers[i].enabled = true;
-            }
-            for (int i = 0; i < clone.GetComponent<Bobomb>().spark.Length; i++)
-            {
-                clone.GetComponent<Bobomb>().spark[i].SetActive(true);
-            }
-            clone.GetComponent<Bobomb>().whoThrewBomb = gameObject.name;
+            yield return StartCoroutine(ItemLaunchers.LaunchBobombBackward(this, bobomb, shellposBack.position, shellposBack.rotation));
         }
     }
     IEnumerator UseBullet()

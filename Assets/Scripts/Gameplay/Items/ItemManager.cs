@@ -7,23 +7,33 @@ using UnityEngine.UI;
 using UnityEngine.InputSystem;
 
 
-public class ItemManager : MonoBehaviour
+public class ItemManager : MonoBehaviour, IItemDriver
 {
     private ItemInputHandler input;
     private bool usePressedThisFrame;
     private bool useReleasedThisFrame;
     private bool useItemHeldLastFrame;
     private bool bobombTrailingActive;
-    private GameObject activeTrailingBobomb;
+    private Bobomb activeTrailingBobomb;
     [SerializeField] private bool orbitingDebugLogging;
 
     private Transform itemsRuntimeParent;
-    private readonly List<GreenShell> greenShellPool = new List<GreenShell>();
+    private ItemService itemService;
+    
     private GreenShell activeGreenShell;
     [SerializeField, Tooltip("Duration in seconds before a held green shell begins trailing when the use button is held.")]
     private float greenShellHoldToTrailTime = 0.25f;
     private bool awaitingGreenShellHoldDecision;
     private float greenShellHoldStartTime;
+    
+    private RedShell activeRedShell;
+    [SerializeField, Tooltip("Duration in seconds before a held red shell begins trailing when the use button is held.")]
+    private float redShellHoldToTrailTime = 0.25f;
+    private bool awaitingRedShellHoldDecision;
+    private float redShellHoldStartTime;
+    
+    private Banana activeBanana;
+    private Bobomb activeBobomb;
 
     [System.Serializable]
     private class DebugItemSettings
@@ -57,10 +67,52 @@ public class ItemManager : MonoBehaviour
     private void Awake()
     {
         input = new ItemInputHandler(new GameControls());
+        itemService = ItemService.Instance;
         if (!TryEnsureCatalog())
         {
             enabled = false;
         }
+    }
+
+    // IItemDriver implementation
+    public Transform ForwardSpawn => shellSpawnPos != null ? shellSpawnPos : transform;
+    public Transform BackSpawn => backshellPos != null ? backshellPos : transform;
+    public Transform HeldParent => heldItemParent != null ? heldItemParent : transform;
+    public Transform TrailingParent => trailingItemParent != null ? trailingItemParent : (backshellPos != null ? backshellPos : transform);
+    public Transform ItemsStorage => GetItemsParent();
+    public int CurrentWaypoint => currentWayPoint;
+    public bool IsStarActive => StarPowerUp;
+    public bool IsAntiGravity => player_script != null && player_script.antiGravity;
+    public string DriverName => gameObject.name;
+    public GameObject DriverGameObject => gameObject;
+
+    public void TriggerThrowForward()
+    {
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetTrigger("ThrowForward");
+        }
+    }
+
+    public void TriggerThrowBackward()
+    {
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetTrigger("ThrowBackward");
+        }
+    }
+
+    public void SetHasItem(bool hasItem)
+    {
+        if (player_script != null && player_script.Driver != null)
+        {
+            player_script.Driver.SetBool("hasItem", hasItem);
+        }
+    }
+
+    public Rigidbody GetRigidbody()
+    {
+        return GetComponent<Rigidbody>();
     }
     
     private void OnEnable()
@@ -218,6 +270,9 @@ public class ItemManager : MonoBehaviour
         trailingVisuals.Clear();
         CurrentTrailingItem = null;
         activeGreenShell = null;
+        activeRedShell = null;
+        activeBanana = null;
+        activeBobomb = null;
 
         if (!TryEnsureCatalog())
         {
@@ -436,11 +491,7 @@ public class ItemManager : MonoBehaviour
 
     private void CacheRuntimePrefabs()
     {
-        greenShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.GreenShell);
-        redShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.RedShell);
-        bananaPrefab = GetPrefabFromDefinitions(DebugItemSelection.Banana);
         coinPrefab = GetPrefabFromDefinitions(DebugItemSelection.Coin);
-        bobombPrefab = GetPrefabFromDefinitions(DebugItemSelection.BobombHold);
         blueShellPrefab = GetPrefabFromDefinitions(DebugItemSelection.BlueShell);
     }
 
@@ -601,6 +652,7 @@ public class ItemManager : MonoBehaviour
         }
 
         ProcessGreenShellHold(useItemHeldNow);
+        ProcessRedShellHold(useItemHeldNow);
         useItemHeldLastFrame = useItemHeldNow;
     }
 
@@ -608,17 +660,72 @@ public class ItemManager : MonoBehaviour
     {
         if (IsGreenShellName(canonicalName))
         {
-            GreenShell shell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : GetAvailableGreenShell();
+            GreenShell shell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : itemService.GetAvailableGreenShell(ItemsStorage);
             if (shell != null)
             {
+                shell.Initialize(this);
                 shell.EnterTrailing(GetTrailingParent());
                 activeGreenShell = shell;
                 CurrentTrailingItem = shell.gameObject;
             }
 
-            if (player_script != null && player_script.Driver != null)
+            SetHasItem(false);
+            return;
+        }
+
+        if (IsRedShellName(canonicalName))
+        {
+            RedShell shell = activeRedShell != null && activeRedShell.IsAvailable() ? activeRedShell : itemService.GetAvailableRedShell(ItemsStorage);
+            if (shell != null)
             {
-                player_script.Driver.SetBool("hasItem", false);
+                shell.Initialize(this);
+                shell.EnterTrailing(GetTrailingParent());
+                activeRedShell = shell;
+                CurrentTrailingItem = shell.gameObject;
+            }
+
+            SetHasItem(false);
+            return;
+        }
+
+        if (string.Equals(canonicalName, "Banana", System.StringComparison.OrdinalIgnoreCase))
+        {
+            Banana banana = activeBanana != null && activeBanana.IsAvailable() ? activeBanana : itemService.GetAvailableBanana(ItemsStorage);
+            if (banana != null)
+            {
+                banana.Initialize(this);
+                banana.EnterTrailing(GetTrailingParent());
+                activeBanana = banana;
+                CurrentTrailingItem = banana.gameObject;
+            }
+
+            SetHasItem(false);
+            GameObject heldItem = GetHeldVisual(canonicalName);
+            if (heldItem != null)
+            {
+                heldItem.SetActive(false);
+            }
+            return;
+        }
+
+        if (string.Equals(canonicalName, "Bobomb-Hold", System.StringComparison.OrdinalIgnoreCase))
+        {
+            Bobomb bobomb = activeBobomb != null && activeBobomb.IsAvailable() ? activeBobomb : itemService.GetAvailableBobomb(ItemsStorage);
+            if (bobomb != null)
+            {
+                bobomb.Initialize(this);
+                bobomb.EnterTrailing(GetTrailingParent());
+                activeBobomb = bobomb;
+                activeTrailingBobomb = bobomb;
+                CurrentTrailingItem = bobomb.gameObject;
+                bobombTrailingActive = true;
+            }
+
+            SetHasItem(false);
+            GameObject heldItem = GetHeldVisual(canonicalName);
+            if (heldItem != null)
+            {
+                heldItem.SetActive(false);
             }
             return;
         }
@@ -647,10 +754,7 @@ public class ItemManager : MonoBehaviour
 
         CurrentTrailingItem = trailing;
 
-        if (player_script != null && player_script.Driver != null)
-        {
-            player_script.Driver.SetBool("hasItem", false);
-        }
+        SetHasItem(false);
 
         if (!trailing.activeSelf)
         {
@@ -681,6 +785,23 @@ public class ItemManager : MonoBehaviour
         greenShellHoldStartTime = Time.time;
     }
 
+    internal void HandleRedShellUsePressed(bool aimBackwardHeld)
+    {
+        if (!IsRedShellName(current_Item))
+        {
+            return;
+        }
+
+        if (aimBackwardHeld)
+        {
+            awaitingRedShellHoldDecision = false;
+            return;
+        }
+
+        awaitingRedShellHoldDecision = true;
+        redShellHoldStartTime = Time.time;
+    }
+
     internal void HandleGreenShellRelease(bool aimBackwardHeld)
     {
         if (!IsGreenShellName(current_Item))
@@ -690,16 +811,16 @@ public class ItemManager : MonoBehaviour
 
         awaitingGreenShellHoldDecision = false;
 
-        GreenShell shell = activeGreenShell != null ? activeGreenShell : GetAvailableGreenShell();
+        GreenShell shell = activeGreenShell != null ? activeGreenShell : itemService.GetAvailableGreenShell(ItemsStorage);
         if (shell == null)
         {
             Debug.LogWarning("[ItemManager] Green shell instance unavailable during launch.", this);
             return;
         }
 
-        Transform spawnTransform = aimBackwardHeld ? backshellPos : shellSpawnPos;
-        Vector3 spawnPosition = spawnTransform != null ? spawnTransform.position : transform.position;
-        Quaternion spawnRotation = spawnTransform != null ? spawnTransform.rotation : transform.rotation;
+        Transform spawnTransform = aimBackwardHeld ? BackSpawn : ForwardSpawn;
+        Vector3 spawnPosition = spawnTransform.position;
+        Quaternion spawnRotation = spawnTransform.rotation;
 
         CapsuleCollider playerCollider = GetComponent<CapsuleCollider>();
         if (playerCollider != null)
@@ -715,17 +836,16 @@ public class ItemManager : MonoBehaviour
             }
         }
 
-        Vector3 launchDirection = aimBackwardHeld ? -transform.forward : transform.forward;
         float launchSpeed = aimBackwardHeld ? 3500f : 6000f;
-
-        if (player_script != null && player_script.Driver != null)
-        {
-            player_script.Driver.SetTrigger(aimBackwardHeld ? "ThrowBackward" : "ThrowForward");
-        }
 
         if (aimBackwardHeld)
         {
+            TriggerThrowBackward();
             StartCoroutine(HandleBackwardThrowFaces());
+        }
+        else
+        {
+            TriggerThrowForward();
         }
 
         GreenShell heldShell = activeGreenShell != null && activeGreenShell.IsAvailable() ? activeGreenShell : null;
@@ -741,14 +861,13 @@ public class ItemManager : MonoBehaviour
             }
         }
 
-        GameObject projectileObject = InstantiateItemPrefab("GreenShell", greenShellPrefab, spawnPosition, spawnRotation);
-        if (projectileObject != null)
+        if (aimBackwardHeld)
         {
-            GreenShell projectileShell = projectileObject.GetComponent<GreenShell>();
-            if (projectileShell != null)
-            {
-                projectileShell.LaunchStandalone(spawnPosition, spawnRotation, launchDirection, launchSpeed, player_script != null && player_script.antiGravity, gameObject.name);
-            }
+            StartCoroutine(ItemLaunchers.LaunchGreenShellBackward(this, shell, spawnPosition, spawnRotation, launchSpeed));
+        }
+        else
+        {
+            StartCoroutine(ItemLaunchers.LaunchGreenShellForward(this, shell, spawnPosition, spawnRotation, launchSpeed));
         }
 
         CurrentTrailingItem = null;
@@ -759,72 +878,109 @@ public class ItemManager : MonoBehaviour
 
     internal void HandleRedShellRelease(bool aimBackwardHeld)
     {
-        if (!current_Item.Equals("RedShell"))
+        if (!IsRedShellName(current_Item))
         {
             return;
         }
 
-        if (aimBackwardHeld)
+        awaitingRedShellHoldDecision = false;
+
+        RedShell shell = activeRedShell != null ? activeRedShell : itemService.GetAvailableRedShell(ItemsStorage);
+        if (shell == null)
         {
-            CleanupTrailingItem();
-            ActivateHeldVisual("RedShell");
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowBackward");
-            }
-            StartCoroutine(spawnRedShell(backshellPos, -1));
-            if (!StarPowerUp && player_script != null && player_script.faces != null && player_script.faces.Length > 1)
-            {
-                player_script.current_face_material = player_script.faces[1];
-            }
-                            }
-                            else
-                            {
-            CleanupTrailingItem();
-            ActivateHeldVisual("RedShell");
-            if (player_script != null && player_script.Driver != null)
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-            }
-            StartCoroutine(spawnRedShell(shellSpawnPos, 1));
+            Debug.LogWarning("[ItemManager] Red shell instance unavailable during launch.", this);
+            return;
         }
 
-                        current_Item = "";
+        Transform spawnTransform = aimBackwardHeld ? BackSpawn : ForwardSpawn;
+        Vector3 spawnPosition = spawnTransform.position;
+        Quaternion spawnRotation = spawnTransform.rotation;
+
+        CapsuleCollider playerCollider = GetComponent<CapsuleCollider>();
+        if (playerCollider != null)
+        {
+            float directionSign = aimBackwardHeld ? -1f : 1f;
+            Vector3 forwardDir = transform.forward.normalized;
+            if (forwardDir.sqrMagnitude > Mathf.Epsilon)
+            {
+                float offsetDistance = playerCollider.radius + 0.5f;
+                Vector3 offset = forwardDir * directionSign * offsetDistance;
+                float heightOffset = (playerCollider.height * 0.5f) * Mathf.Clamp(forwardDir.y, -0.5f, 0.5f);
+                spawnPosition = playerCollider.bounds.center + offset + (Vector3.up * heightOffset);
+            }
+        }
+
+        if (aimBackwardHeld)
+        {
+            TriggerThrowBackward();
+            StartCoroutine(HandleBackwardThrowFaces());
+        }
+        else
+        {
+            TriggerThrowForward();
+        }
+
+        RedShell heldShell = activeRedShell != null && activeRedShell.IsAvailable() ? activeRedShell : null;
+
+        CleanupTrailingItem();
+
+        if (heldShell != null)
+        {
+            heldShell.ReturnToPool();
+            if (heldShell == activeRedShell)
+            {
+                activeRedShell = null;
+            }
+        }
+
+        if (aimBackwardHeld)
+        {
+            StartCoroutine(ItemLaunchers.LaunchRedShellBackward(this, shell, spawnPosition, spawnRotation));
+        }
+        else
+        {
+            shell.Initialize(this);
+            shell.EnterProjectile(spawnPosition, spawnRotation, currentWayPoint, IsAntiGravity, gameObject.name);
+        }
+
+        CurrentTrailingItem = null;
+        activeRedShell = null;
+        current_Item = string.Empty;
         used_Item_Done();
     }
 
     internal void HandleBananaRelease(bool aimBackwardHeld)
     {
-        if (!current_Item.Equals("Banana"))
+        if (!string.Equals(current_Item, "Banana", System.StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
+        Banana banana = activeBanana != null ? activeBanana : itemService.GetAvailableBanana(ItemsStorage);
+        if (banana == null)
+        {
+            Debug.LogWarning("[ItemManager] Banana instance unavailable during launch.", this);
+            return;
+        }
+
+        banana.Initialize(this);
+        banana.DetachFromParent();
+        CurrentTrailingItem = null;
+        activeBanana = null;
+
         if (aimBackwardHeld)
         {
-            StartCoroutine(spawnBanana(-1));
-            CleanupTrailingItem();
-            if (player_script != null && player_script.Driver != null)
-            {
-                player_script.Driver.SetTrigger("ThrowBackward");
-            }
-            if (!StarPowerUp && player_script != null && player_script.faces != null && player_script.faces.Length > 1)
-            {
-                player_script.current_face_material = player_script.faces[1];
-            }
+            TriggerThrowBackward();
+            StartCoroutine(ItemLaunchers.LaunchBananaBackward(this, banana, BackSpawn.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, false));
         }
         else
         {
-            CleanupTrailingItem();
-            if (player_script != null && player_script.Driver != null)
-                    {
-                        player_script.Driver.SetTrigger("ThrowForward");
-                    }
-            StartCoroutine(spawnBanana(1));
-                }
+            TriggerThrowForward();
+            StartCoroutine(ItemLaunchers.LaunchBananaForward(this, banana, BananaSpawnPos != null ? BananaSpawnPos.position : transform.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, false));
+        }
 
-                        current_Item = "";
-                    used_Item_Done();
+        current_Item = string.Empty;
+        used_Item_Done();
     }
 
     private void CleanupTrailingItem()
@@ -834,13 +990,54 @@ public class ItemManager : MonoBehaviour
             return;
         }
 
-        GreenShell shellComponent = CurrentTrailingItem.GetComponent<GreenShell>();
-        if (shellComponent != null)
+        GreenShell greenShellComponent = CurrentTrailingItem.GetComponent<GreenShell>();
+        if (greenShellComponent != null)
         {
-            shellComponent.ReturnToPool();
-            if (shellComponent == activeGreenShell)
+            greenShellComponent.ReturnToPool();
+            if (greenShellComponent == activeGreenShell)
             {
                 activeGreenShell = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        RedShell redShellComponent = CurrentTrailingItem.GetComponent<RedShell>();
+        if (redShellComponent != null)
+        {
+            redShellComponent.ReturnToPool();
+            if (redShellComponent == activeRedShell)
+            {
+                activeRedShell = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        Banana bananaComponent = CurrentTrailingItem.GetComponent<Banana>();
+        if (bananaComponent != null)
+        {
+            bananaComponent.ReturnToPool();
+            if (bananaComponent == activeBanana)
+            {
+                activeBanana = null;
+            }
+            CurrentTrailingItem = null;
+            return;
+        }
+
+        Bobomb bobombComponent = CurrentTrailingItem.GetComponent<Bobomb>();
+        if (bobombComponent != null)
+        {
+            bobombComponent.ReturnToPool();
+            if (bobombComponent == activeBobomb)
+            {
+                activeBobomb = null;
+            }
+            if (bobombComponent == activeTrailingBobomb)
+            {
+                activeTrailingBobomb = null;
+                bobombTrailingActive = false;
             }
             CurrentTrailingItem = null;
             return;
@@ -863,15 +1060,9 @@ public class ItemManager : MonoBehaviour
     {
         CleanupTrailingItem();
         activeGreenShell = null;
-
-        for (int i = 0; i < greenShellPool.Count; i++)
-        {
-            GreenShell shell = greenShellPool[i];
-            if (shell != null && shell.IsAvailable())
-            {
-                shell.ReturnToPool();
-            }
-        }
+        activeRedShell = null;
+        activeBanana = null;
+        activeBobomb = null;
 
         if (item_gameobjects == null || item_gameobjects.Length == 0)
         {
@@ -979,19 +1170,29 @@ public class ItemManager : MonoBehaviour
             return;
         }
 
+        Banana banana = itemService.GetAvailableBanana(ItemsStorage);
+        if (banana == null)
+        {
+            Debug.LogWarning("[ItemManager] Banana instance unavailable during triple launch.", this);
+            return;
+        }
+
+        banana.Initialize(this);
         if (aimBackwardHeld)
         {
-            StartCoroutine(spawnBanana(-1));
-                player_script.Driver.SetTrigger("ThrowBackward");
+            banana.DetachFromParent();
+            StartCoroutine(ItemLaunchers.LaunchBananaBackward(this, banana, BackSpawn.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, true));
+            TriggerThrowBackward();
             if (!StarPowerUp)
             {
                 player_script.current_face_material = player_script.faces[1];
             }
         }
         else
-            {
-                player_script.Driver.SetTrigger("ThrowForward");
-            StartCoroutine(spawnBanana(1));
+        {
+            TriggerThrowForward();
+            banana.DetachFromParent();
+            StartCoroutine(ItemLaunchers.LaunchBananaForward(this, banana, BananaSpawnPos != null ? BananaSpawnPos.position : transform.position, BananaSpawnPos != null ? BananaSpawnPos.rotation : transform.rotation, true));
         }
 
         tripleItemCount--;
@@ -1240,12 +1441,45 @@ public class ItemManager : MonoBehaviour
                 heldVisual.SetActive(false);
             }
 
-            GreenShell shell = GetAvailableGreenShell();
+            GreenShell shell = itemService.GetAvailableGreenShell(ItemsStorage);
             if (shell != null)
             {
-                shell.EnterHeld(heldItemParent != null ? heldItemParent : transform);
+                shell.Initialize(this);
+                shell.EnterHeld(HeldParent);
                 shell.gameObject.SetActive(true);
                 activeGreenShell = shell;
+            }
+        }
+        else if (IsRedShellName(selectedItemName))
+        {
+            if (heldVisual != null)
+            {
+                heldVisual.SetActive(false);
+            }
+
+            RedShell shell = itemService.GetAvailableRedShell(ItemsStorage);
+            if (shell != null)
+            {
+                shell.Initialize(this);
+                shell.EnterHeld(HeldParent);
+                shell.gameObject.SetActive(true);
+                activeRedShell = shell;
+            }
+        }
+        else if (string.Equals(selectedItemName, "Banana", System.StringComparison.OrdinalIgnoreCase))
+        {
+            if (heldVisual != null)
+            {
+                heldVisual.SetActive(false);
+            }
+
+            Banana banana = itemService.GetAvailableBanana(ItemsStorage);
+            if (banana != null)
+            {
+                banana.Initialize(this);
+                banana.EnterHeld(HeldParent);
+                banana.gameObject.SetActive(true);
+                activeBanana = banana;
             }
         }
         else if (heldVisual != null)
@@ -1258,7 +1492,7 @@ public class ItemManager : MonoBehaviour
 
         if (!treatAsTriple)
         {
-            player_script.Driver.SetBool("hasItem", true);
+            SetHasItem(true);
             player_script.has_item_hold = true;
             tripleItemCount = 0;
 
@@ -1283,87 +1517,42 @@ public class ItemManager : MonoBehaviour
     //SPAWN FUNCTIONS
     IEnumerator spawnShell(Transform position, int direction)
     {
-        yield return new WaitForSeconds(0.15f);
-        GameObject clone = InstantiateItemPrefab("GreenShell", greenShellPrefab, position.position, position.rotation);
-        if (clone == null)
+        GreenShell shell = itemService.GetAvailableGreenShell(ItemsStorage);
+        if (shell == null)
         {
             yield break;
         }
 
-        GreenShell greenShell = clone.GetComponent<GreenShell>();
-        if (greenShell == null)
-        {
-            Debug.LogWarning("[ItemManager] Spawned GreenShell prefab is missing GreenShell component.", clone);
-            yield break;
-        }
-
-        greenShell.who_threw_shell = gameObject.name;
-
+        shell.Initialize(this);
         if (direction == 1)
         {
-            greenShell.myVelocity = transform.forward.normalized;
-            greenShell.velocityMagOriginal = 6000;
-            greenShell.AntiGravity = player_script.antiGravity;
-            greenShell.lifetime = 0;
-            yield return new WaitForSeconds(0.25f);
+            yield return StartCoroutine(ItemLaunchers.LaunchGreenShellForward(this, shell, position.position, position.rotation, 6000f));
             DeactivateHeldVisual("GreenShell");
         }
         else
         {
-            greenShell.myVelocity = -transform.forward.normalized;
-            greenShell.velocityMagOriginal = 3500;
-            greenShell.AntiGravity = player_script.antiGravity;
-            yield return new WaitForSeconds(0.25f);
+            yield return StartCoroutine(ItemLaunchers.LaunchGreenShellBackward(this, shell, position.position, position.rotation, 3500f));
             DeactivateHeldVisual("GreenShell");
         }
     }
 
     IEnumerator spawnRedShell(Transform position, int direction)
     {
-        yield return new WaitForSeconds(0.15f);
-        GameObject clone = InstantiateItemPrefab("RedShell", redShellPrefab, position.position, position.rotation);
-        if (clone == null)
+        RedShell shell = itemService.GetAvailableRedShell(ItemsStorage);
+        if (shell == null)
         {
             yield break;
         }
 
-        RedShell redShell = clone.GetComponent<RedShell>();
-        if (redShell == null)
-        {
-            Debug.LogWarning("[ItemManager] Spawned RedShell prefab is missing RedShell component.", clone);
-            yield break;
-        }
-
-        redShell.who_threw_shell = gameObject.name;
-        redShell.AntiGravity = player_script.antiGravity;
-
+        shell.Initialize(this);
         if (direction == 1)
         {
-            clone.SetActive(true);
-            redShell.current_node = currentWayPoint;
-            yield return new WaitForSeconds(0.25f);
+            yield return StartCoroutine(ItemLaunchers.LaunchRedShellForward(this, shell, position.position, position.rotation));
             DeactivateHeldVisual("RedShell");
         }
         else if (direction == -1)
         {
-            clone.SetActive(false);
-            redShell.enabled = false;
-
-            GreenShell tempShell = clone.GetComponent<GreenShell>();
-            if (tempShell == null)
-            {
-                tempShell = clone.AddComponent<GreenShell>();
-            }
-
-            tempShell.lifetime = 0;
-            tempShell.myVelocity = -transform.forward.normalized;
-            tempShell.velocityMagOriginal = 3500;
-            tempShell.AntiGravity = player_script.antiGravity;
-            tempShell.who_threw_shell = gameObject.name;
-
-            clone.SetActive(true);
-
-            yield return new WaitForSeconds(0.25f);
+            yield return StartCoroutine(ItemLaunchers.LaunchRedShellBackward(this, shell, position.position, position.rotation));
             DeactivateHeldVisual("RedShell");
 
             for (int i = 0; i < 75; i++)
@@ -1393,115 +1582,23 @@ public class ItemManager : MonoBehaviour
     }
     IEnumerator useBobomb(int direction)
     {
-        if(direction == 1)
+        Bobomb bobomb = itemService.GetAvailableBobomb(ItemsStorage);
+        if (bobomb == null)
         {
-            yield return new WaitForSeconds(0.1f);
-            DeactivateHeldVisual(item_index);
-
-            GameObject clone = InstantiateItemPrefab("Bobomb-Hold", bobombPrefab, BananaSpawnPos.position, BananaSpawnPos.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.SetActive(true);
-            var cloneBomb = clone.GetComponent<Bobomb>();
-            if (cloneBomb != null)
-            {
-                cloneBomb.bomb_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 400);
-            }
-            clone.GetComponent<AudioSource>().enabled = true;
-
-            if (cloneBomb != null)
-            {
-                for (int i = 0; i < cloneBomb.renderers.Length; i++)
-                {
-                    cloneBomb.renderers[i].enabled = true;
-            }
-                for (int i = 0; i < cloneBomb.spark.Length; i++)
-            {
-                    cloneBomb.spark[i].SetActive(true);
-            }
-                cloneBomb.whoThrewBomb = gameObject.name;
-            }
-
-        }
-        if(direction == -1)
-        {
-            yield return new WaitForSeconds(0.1f);
-            DeactivateHeldVisual(item_index);
-
-            GameObject clone = InstantiateItemPrefab("Bobomb-Hold", bobombPrefab, backshellPos.position, BananaSpawnPos.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.SetActive(true);
-            var cloneBomb = clone.GetComponent<Bobomb>();
-            if (cloneBomb != null)
-            {
-                cloneBomb.bounce_count = 4;
-
-                for (int i = 0; i < cloneBomb.renderers.Length; i++)
-                {
-                    cloneBomb.renderers[i].enabled = true;
-                }
-                for (int i = 0; i < cloneBomb.spark.Length; i++)
-                {
-                    cloneBomb.spark[i].SetActive(true);
-                }
-                cloneBomb.whoThrewBomb = gameObject.name;
-            }
-        }
-    }
-    IEnumerator spawnBanana(int direction)
-    {
-        GameObject clone;
-        if(direction == 1)//forward
-        {
-            yield return new WaitForSeconds(0.1f);
-            DeactivateHeldVisual("Banana");
-            clone = InstantiateItemPrefab("Banana", bananaPrefab, BananaSpawnPos.position, BananaSpawnPos.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.GetComponent<Banana>().Banana_thrown(transform.InverseTransformDirection(GetComponent<Rigidbody>().velocity).z * 200);
-            clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
-        }
-        else
-        {
-            yield return new WaitForSeconds(0.25f);
-            clone = InstantiateItemPrefab("Banana", bananaPrefab, backshellPos.position, BananaSpawnPos.rotation);
-            if (clone == null)
-            {
-                yield break;
-            }
-            clone.GetComponent<Banana>().whoThrewBanana = gameObject.name;
-            for (int i = 0; i < 75; i++)
-            {
-                if (!StarPowerUp)
-                {
-                    player_script.current_face_material = player_script.faces[1]; //make sure it is not changed, by repeating in for loop
-                    player_script.SpecialFace = true;
-                }
-                yield return new WaitForSeconds(0.01f);
-            }
-            DeactivateHeldVisual("Banana");
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[2]; //blink
-                player_script.SpecialFace = true;
-            }
-            yield return new WaitForSeconds(0.1f);
-            if (!StarPowerUp)
-            {
-                player_script.current_face_material = player_script.faces[0];//normal
-                player_script.SpecialFace = false;
-            }
-
+            yield break;
         }
 
+        bobomb.Initialize(this);
+        DeactivateHeldVisual(item_index);
 
+        if (direction == 1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchBobombForward(this, bobomb, BananaSpawnPos.position, BananaSpawnPos.rotation));
+        }
+        else if (direction == -1)
+        {
+            yield return StartCoroutine(ItemLaunchers.LaunchBobombBackward(this, bobomb, BackSpawn.position, BananaSpawnPos.rotation));
+        }
     }
     IEnumerator UseCoin()
     {
@@ -1624,16 +1721,13 @@ public class ItemManager : MonoBehaviour
         // For testing we keep the UI visible and skip the auto-refill.
         
         awaitingGreenShellHoldDecision = false;
+        awaitingRedShellHoldDecision = false;
         player_script.hasitem = false;
         player_script.has_item_hold = false;
         item_decided = false;
         start_select = false;
         hud.StopRoulette();
-
-        if (player_script != null && player_script.Driver != null)
-        {
-        player_script.Driver.SetBool("hasItem", false);
-        }
+        SetHasItem(false);
 
         if (!suppressDebugAutoRefill && debugSettings.selectedItem != DebugItemSelection.None)
         {
@@ -2033,60 +2127,61 @@ public class ItemManager : MonoBehaviour
 
     private void StartBobombTrailing()
     {
-        bobombTrailingActive = true;
-        player_script.Driver.SetBool("hasItem", false);
-        DeactivateHeldVisual(item_index);
-
-        activeTrailingBobomb = InstantiateItemPrefab("Bobomb-Hold", bobombPrefab, backshellPos.position, backshellPos.rotation, backshellPos);
-        if (activeTrailingBobomb == null)
+        Bobomb bobomb = activeBobomb != null && activeBobomb.IsAvailable() ? activeBobomb : itemService.GetAvailableBobomb(ItemsStorage);
+        if (bobomb == null)
         {
             bobombTrailingActive = false;
             return;
         }
 
-        var bombScript = activeTrailingBobomb.GetComponent<Bobomb>();
-        if (bombScript != null)
-        {
-            bombScript.whoThrewBomb = gameObject.name;
-            bombScript.BeginHeld(OnBobombHeldExplosion);
-        }
-        else
-        {
-        }
+        bobomb.Initialize(this);
+        bobomb.EnterTrailing(GetTrailingParent());
+        activeBobomb = bobomb;
+        activeTrailingBobomb = bobomb;
+        CurrentTrailingItem = bobomb.gameObject;
+        bobombTrailingActive = true;
 
-        CurrentTrailingItem = activeTrailingBobomb;
+        SetHasItem(false);
+        DeactivateHeldVisual(item_index);
     }
 
     private void ReleaseBobombTrailing()
     {
-
         bobombTrailingActive = false;
 
         if (activeTrailingBobomb != null)
         {
-            var bombScript = activeTrailingBobomb.GetComponent<Bobomb>();
-            if (bombScript != null)
-            {
-                bombScript.ReleaseHeldAsMine();
-            }
-            ReleaseBobombAsMine(activeTrailingBobomb, -transform.forward);
+            activeTrailingBobomb.ReleaseHeldAsMine();
+            ReleaseBobombAsMine(activeTrailingBobomb.gameObject, -transform.forward);
             activeTrailingBobomb = null;
         }
 
+        if (activeBobomb != null)
+        {
+            activeBobomb = null;
+        }
+
         CurrentTrailingItem = null;
-        player_script.Driver.SetTrigger("ThrowBackward");
+        TriggerThrowBackward();
         used_Item_Done();
         current_Item = "";
     }
 
-    private void OnBobombHeldExplosion()
+    internal void OnBobombTrailingExploded(Bobomb bobomb)
     {
         bobombTrailingActive = false;
 
-        if (activeTrailingBobomb != null)
+        if (bobomb != null)
         {
-            activeTrailingBobomb.transform.SetParent(null, true);
-            activeTrailingBobomb = null;
+            bobomb.ReturnToPool();
+            if (bobomb == activeBobomb)
+            {
+                activeBobomb = null;
+            }
+            if (bobomb == activeTrailingBobomb)
+            {
+                activeTrailingBobomb = null;
+            }
         }
 
         CurrentTrailingItem = null;
@@ -2101,30 +2196,15 @@ public class ItemManager : MonoBehaviour
             return;
         }
 
-        bombObject.transform.SetParent(null, true);
-        bombObject.SetActive(true);
-
-        var rb = bombObject.GetComponent<Rigidbody>();
-        if (rb != null)
-        {
-            rb.isKinematic = false;
-            rb.velocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            rb.AddForce(forwardDirection.normalized * 15f, ForceMode.VelocityChange);
-        }
-
-        var bombScript = bombObject.GetComponent<Bobomb>();
+        Bobomb bombScript = bombObject.GetComponent<Bobomb>();
         if (bombScript != null)
         {
-            bombScript.enabled = true;
-            bombScript.whoThrewBomb = gameObject.name;
-        }
-
-        var audio = bombObject.GetComponent<AudioSource>();
-        if (audio != null)
-        {
-            audio.enabled = true;
-            audio.Play();
+            bombScript.EnterMine(bombObject.transform.position, bombObject.transform.rotation, gameObject.name);
+            Rigidbody rb = bombObject.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.AddForce(forwardDirection.normalized * 15f, ForceMode.VelocityChange);
+            }
         }
     }
 
@@ -2135,7 +2215,10 @@ public class ItemManager : MonoBehaviour
             if (heldItemParent != null && itemsRuntimeParent != heldItemParent)
             {
                 itemsRuntimeParent = heldItemParent;
-                ReparentGreenShellPool(itemsRuntimeParent);
+                if (itemService != null)
+                {
+                    itemService.ReparentAllPools(itemsRuntimeParent);
+                }
 #if UNITY_EDITOR
                 Debug.Log($"[ItemManager] Items parent switched to heldItemParent {itemsRuntimeParent.name}.", itemsRuntimeParent);
 #endif
@@ -2146,7 +2229,10 @@ public class ItemManager : MonoBehaviour
         if (heldItemParent != null)
         {
             itemsRuntimeParent = heldItemParent;
-            ReparentGreenShellPool(itemsRuntimeParent);
+            if (itemService != null)
+            {
+                itemService.ReparentAllPools(itemsRuntimeParent);
+            }
 #if UNITY_EDITOR
             Debug.Log($"[ItemManager] Using heldItemParent {itemsRuntimeParent.name} as items parent.", itemsRuntimeParent);
 #endif
@@ -2164,7 +2250,10 @@ public class ItemManager : MonoBehaviour
         }
 
         itemsRuntimeParent = transform;
-        ReparentGreenShellPool(itemsRuntimeParent);
+        if (itemService != null)
+        {
+            itemService.ReparentAllPools(itemsRuntimeParent);
+        }
 #if UNITY_EDITOR
         Debug.Log("[ItemManager] Falling back to kart transform for items parent.", this);
 #endif
@@ -2173,82 +2262,14 @@ public class ItemManager : MonoBehaviour
 
     internal Transform GreenShellStorage => GetItemsParent();
 
-    private void ReparentGreenShellPool(Transform targetParent)
-    {
-        if (targetParent == null || greenShellPool == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < greenShellPool.Count; i++)
-        {
-            GreenShell shell = greenShellPool[i];
-            if (shell == null)
-            {
-                continue;
-            }
-
-            Transform shellTransform = shell.transform;
-            if (shellTransform.parent == targetParent)
-            {
-                continue;
-            }
-
-            shellTransform.SetParent(targetParent, false);
-            shellTransform.localPosition = Vector3.zero;
-            shellTransform.localRotation = Quaternion.identity;
-        }
-    }
-
-    private GreenShell GetAvailableGreenShell()
-    {
-        for (int i = 0; i < greenShellPool.Count; i++)
-        {
-            GreenShell shell = greenShellPool[i];
-            if (shell != null && shell.IsAvailable())
-            {
-                Transform storageParent = GetItemsParent();
-                if (shell.transform.parent == storageParent)
-                {
-                    shell.transform.localPosition = Vector3.zero;
-                    shell.transform.localRotation = Quaternion.identity;
-                }
-#if UNITY_EDITOR
-                Debug.Log($"[ItemManager] Reusing pooled green shell index {i} localPos {shell.transform.localPosition} worldPos {shell.transform.position}", shell);
-#endif
-                return shell;
-            }
-        }
-
-        if (greenShellPrefab == null)
-        {
-            Debug.LogWarning("[ItemManager] Green shell prefab not configured.", this);
-            return null;
-        }
-
-        Transform parent = GetItemsParent();
-        GameObject shellObject = Instantiate(greenShellPrefab, parent.position, parent.rotation, parent);
-        shellObject.transform.localPosition = Vector3.zero;
-        shellObject.transform.localRotation = Quaternion.identity;
-        GreenShell newShell = shellObject.GetComponent<GreenShell>();
-        if (newShell == null)
-        {
-            Debug.LogError("[ItemManager] Instantiated green shell is missing GreenShell component.", shellObject);
-            Destroy(shellObject);
-            return null;
-        }
-
-        newShell.Initialize(this);
-        greenShellPool.Add(newShell);
-#if UNITY_EDITOR
-        Debug.Log($"[ItemManager] Instantiated new green shell pool size {greenShellPool.Count} localPos {newShell.transform.localPosition} worldPos {newShell.transform.position}", newShell);
-#endif
-        return newShell;
-    }
-
     private static bool IsGreenShellName(string itemName)
     {
         return !string.IsNullOrEmpty(itemName) && string.Equals(itemName, "GreenShell", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsRedShellName(string itemName)
+    {
+        return !string.IsNullOrEmpty(itemName) && string.Equals(itemName, "RedShell", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ProcessGreenShellHold(bool useItemHeldNow)
@@ -2283,6 +2304,38 @@ public class ItemManager : MonoBehaviour
         StartTrailingItemIfNeeded("GreenShell");
     }
 
+    private void ProcessRedShellHold(bool useItemHeldNow)
+    {
+        if (!awaitingRedShellHoldDecision)
+        {
+            return;
+        }
+
+        if (!player_script.hasitem || !IsRedShellName(current_Item))
+        {
+            awaitingRedShellHoldDecision = false;
+            return;
+        }
+
+        if (!useItemHeldNow)
+        {
+            awaitingRedShellHoldDecision = false;
+            return;
+        }
+
+        float elapsed = Time.time - redShellHoldStartTime;
+        if (elapsed < redShellHoldToTrailTime)
+        {
+            return;
+        }
+
+        awaitingRedShellHoldDecision = false;
+#if UNITY_EDITOR
+        Debug.Log($"[ItemManager] Red shell hold threshold met after {elapsed:F3}s. Entering trailing state.", this);
+#endif
+        StartTrailingItemIfNeeded("RedShell");
+    }
+
     internal void OnGreenShellTrailingConsumed(GreenShell shell)
     {
         awaitingGreenShellHoldDecision = false;
@@ -2306,6 +2359,51 @@ public class ItemManager : MonoBehaviour
         if (shell == activeGreenShell)
         {
             activeGreenShell = null;
+        }
+    }
+
+    internal void OnRedShellTrailingConsumed(RedShell shell)
+    {
+        if (shell != null)
+        {
+            shell.ReturnToPool();
+        }
+
+        current_Item = string.Empty;
+        CurrentTrailingItem = null;
+        used_Item_Done();
+    }
+
+    internal void OnRedShellReturned(RedShell shell)
+    {
+        awaitingRedShellHoldDecision = false;
+        if (shell == activeRedShell)
+        {
+            activeRedShell = null;
+        }
+    }
+
+    internal void OnBananaTrailingConsumed(Banana banana)
+    {
+        if (banana != null)
+        {
+            banana.ReturnToPool();
+            if (banana == activeBanana)
+            {
+                activeBanana = null;
+            }
+        }
+
+        current_Item = string.Empty;
+        CurrentTrailingItem = null;
+        used_Item_Done();
+    }
+
+    internal void OnBananaReturned(Banana banana)
+    {
+        if (banana == activeBanana)
+        {
+            activeBanana = null;
         }
     }
 
@@ -2338,3 +2436,6 @@ public class ItemManager : MonoBehaviour
         }
     }
 }
+
+
+

@@ -21,6 +21,12 @@ public class ShellItemBehaviour : IItemBehaviour
             return;
         }
 
+        if (isRedShell && string.Equals(trailingItemName, "RedShell", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Manager.HandleRedShellUsePressed(aimBackwardHeld);
+            return;
+        }
+
         if (!aimBackwardHeld)
         {
             context.Manager.StartTrailingItemIfNeeded(trailingItemName);
